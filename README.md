@@ -6,6 +6,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/sudarshan8417/tfdrift/actions/workflows/ci.yml/badge.svg)](https://github.com/sudarshan8417/tfdrift/actions)
 
+![tfdrift demo](demo.gif)
+
 ---
 
 `tfdrift` is a Python CLI tool that monitors your Terraform-managed infrastructure for drift — changes made outside of Terraform workflows (console clicks, scripts, other tools). It scans your Terraform workspaces, detects discrepancies between state and reality, generates structured reports, and optionally auto-remediates or notifies your team.
