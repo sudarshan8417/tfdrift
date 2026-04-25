@@ -64,6 +64,9 @@ class TfdriftConfig:
     remediation: RemediationConfig = field(default_factory=RemediationConfig)
     ignore_rules: list[IgnoreRule] = field(default_factory=list)
     terraform_binary: str = "terraform"
+    var_files: list[str] = field(default_factory=list)
+    vars: dict[str, str] = field(default_factory=dict)
+    auto_detect_var_files: bool = True
 
     def should_ignore(self, resource_address: str, attribute: str | None = None) -> bool:
         """Check if drift on a resource/attribute should be ignored."""
@@ -185,4 +188,7 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         remediation=remediation,
         ignore_rules=ignore_rules,
         terraform_binary=raw_config.get("terraform_binary", "terraform"),
+        var_files=scan_config.get("var_files", []),
+        vars=scan_config.get("vars", {}),
+        auto_detect_var_files=scan_config.get("auto_detect_var_files", True),
     )

@@ -79,6 +79,15 @@ scan:
   exclude:
     - "**/test/**"
     - "**/.terraform/**"
+  # Auto-detect .tfvars files in each workspace (default: true)
+  auto_detect_var_files: true
+  # Or specify explicit var files
+  var_files:
+    - envs/dev.tfvars
+  # Or pass variables directly
+  vars:
+    environment: production
+    region: us-east-1
 
 severity:
   critical:

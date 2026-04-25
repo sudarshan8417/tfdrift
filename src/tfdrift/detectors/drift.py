@@ -90,8 +90,19 @@ def discover_workspaces(
 def run_terraform_plan(
     workspace_path: Path,
     terraform_binary: str = "terraform",
+    var_files: list[str] | None = None,
+    vars: dict[str, str] | None = None,
+    auto_detect_var_files: bool = True,
 ) -> tuple[dict | None, str | None]:
     """Run `terraform plan` in JSON mode and return parsed output.
+
+    Args:
+        workspace_path: Path to the Terraform workspace.
+        terraform_binary: Path to terraform binary.
+        var_files: Explicit list of .tfvars files to pass via -var-file.
+        vars: Dict of variables to pass via -var.
+        auto_detect_var_files: If True, automatically detect .tfvars files
+            in the workspace directory.
 
     Returns:
         (plan_json, error_message) — one of them will be None.
@@ -108,16 +119,50 @@ def run_terraform_plan(
     if init_result.returncode != 0:
         return None, f"terraform init failed: {init_result.stderr[:500]}"
 
-    # Run terraform plan with JSON output
+    # Build plan command with var-file and var arguments
+    plan_cmd = [
+        terraform_binary,
+        "plan",
+        "-detailed-exitcode",
+        "-input=false",
+        "-no-color",
+        "-out=tfdrift.tfplan",
+    ]
+
+    # Add explicit var files from config
+    if var_files:
+        for vf in var_files:
+            vf_path = Path(vf)
+            # Support both absolute and relative paths
+            if not vf_path.is_absolute():
+                vf_path = workspace_path / vf_path
+            if vf_path.exists():
+                plan_cmd.extend(["-var-file", str(vf_path)])
+
+    # Auto-detect .tfvars files in the workspace directory
+    if auto_detect_var_files and not var_files:
+        # Check for terraform.tfvars first (Terraform's default)
+        default_tfvars = workspace_path / "terraform.tfvars"
+        if default_tfvars.exists():
+            plan_cmd.extend(["-var-file", str(default_tfvars)])
+
+        # Then check for *.auto.tfvars (Terraform auto-loads these anyway)
+        # Also check for any other .tfvars files
+        for tfvars_file in sorted(workspace_path.glob("*.tfvars")):
+            if tfvars_file.name == "terraform.tfvars":
+                continue  # Already added above
+            if tfvars_file.name.endswith(".auto.tfvars"):
+                continue  # Terraform auto-loads these
+            plan_cmd.extend(["-var-file", str(tfvars_file)])
+
+    # Add explicit variables from config
+    if vars:
+        for key, value in vars.items():
+            plan_cmd.extend(["-var", f"{key}={value}"])
+
+    # Run terraform plan
     plan_result = subprocess.run(
-        [
-            terraform_binary,
-            "plan",
-            "-detailed-exitcode",
-            "-input=false",
-            "-no-color",
-            "-out=tfdrift.tfplan",
-        ],
+        plan_cmd,
         cwd=str(workspace_path),
         capture_output=True,
         text=True,
@@ -265,7 +310,13 @@ def scan_workspace(
 
     logger.info("Scanning workspace: %s", workspace_path)
 
-    plan_json, error = run_terraform_plan(workspace_path, config.terraform_binary)
+    plan_json, error = run_terraform_plan(
+        workspace_path,
+        config.terraform_binary,
+        var_files=config.var_files,
+        vars=config.vars,
+        auto_detect_var_files=config.auto_detect_var_files,
+    )
 
     if error or plan_json is None:
         return WorkspaceScanResult(

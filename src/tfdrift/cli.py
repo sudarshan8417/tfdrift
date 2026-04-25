@@ -33,7 +33,7 @@ def setup_logging(verbose: bool = False) -> None:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="tfdrift")
+@click.version_option(version="0.1.1", prog_name="tfdrift")
 def main():
     """tfdrift — Continuous Terraform drift detection and remediation."""
     pass
@@ -62,6 +62,14 @@ def main():
 )
 @click.option("--env", default=None, help="Environment name (used for remediation safety checks)")
 @click.option("--slack-webhook", default=None, help="Slack webhook URL for notifications")
+@click.option(
+    "--var-file", "var_files", multiple=True,
+    help="Path to .tfvars file (can be specified multiple times)",
+)
+@click.option(
+    "--var", "cli_vars", multiple=True,
+    help='Variable in key=value format (can be specified multiple times)',
+)
 @click.option("--verbose", "-v", is_flag=True, default=False, help="Enable verbose logging")
 def scan(
     path: str,
@@ -73,6 +81,8 @@ def scan(
     dry_run: bool,
     env: str | None,
     slack_webhook: str | None,
+    var_files: tuple[str, ...],
+    cli_vars: tuple[str, ...],
     verbose: bool,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
@@ -80,6 +90,15 @@ def scan(
 
     # Load config
     config = load_config(config_path=config_path, base_dir=path)
+
+    # Merge CLI --var-file and --var into config (CLI takes priority)
+    if var_files:
+        config.var_files = list(var_files)
+    if cli_vars:
+        for var_str in cli_vars:
+            if "=" in var_str:
+                key, value = var_str.split("=", 1)
+                config.vars[key] = value
 
     # Run scan
     with console.status("[bold]Scanning for drift...", spinner="dots"):
