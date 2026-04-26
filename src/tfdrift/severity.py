@@ -13,6 +13,7 @@ from tfdrift.models import DriftedResource, Severity
 
 # Default severity rules — security-critical resources and attributes
 DEFAULT_CRITICAL_PATTERNS = [
+    # AWS
     "aws_security_group.*.ingress",
     "aws_security_group.*.egress",
     "aws_security_group_rule.*",
@@ -25,9 +26,26 @@ DEFAULT_CRITICAL_PATTERNS = [
     "aws_kms_key.*.key_policy",
     "aws_vpc.*.enable_dns_hostnames",
     "aws_network_acl_rule.*",
+    # Azure
+    "azurerm_network_security_group.*.security_rule",
+    "azurerm_network_security_rule.*",
+    "azurerm_role_assignment.*",
+    "azurerm_role_definition.*.permissions",
+    "azurerm_key_vault_access_policy.*",
+    "azurerm_storage_account.*.allow_blob_public_access",
+    "azurerm_storage_account.*.network_rules",
+    # GCP
+    "google_compute_firewall.*.allow",
+    "google_compute_firewall.*.deny",
+    "google_compute_firewall.*.source_ranges",
+    "google_project_iam_binding.*",
+    "google_project_iam_member.*",
+    "google_storage_bucket_iam_binding.*",
+    "google_kms_crypto_key_iam_binding.*",
 ]
 
 DEFAULT_HIGH_PATTERNS = [
+    # AWS
     "aws_instance.*.instance_type",
     "aws_instance.*.ami",
     "aws_instance.*.user_data",
@@ -41,11 +59,26 @@ DEFAULT_HIGH_PATTERNS = [
     "aws_cloudfront_distribution.*.viewer_certificate",
     "aws_elasticache_cluster.*.engine_version",
     "aws_eks_cluster.*.version",
+    # Azure
+    "azurerm_virtual_machine.*.vm_size",
+    "azurerm_linux_virtual_machine.*.size",
+    "azurerm_windows_virtual_machine.*.size",
+    "azurerm_sql_server.*.administrator_login_password",
+    "azurerm_storage_account.*.enable_https_traffic_only",
+    "azurerm_kubernetes_cluster.*.kubernetes_version",
+    # GCP
+    "google_compute_instance.*.machine_type",
+    "google_compute_instance.*.boot_disk",
+    "google_sql_database_instance.*.database_version",
+    "google_container_cluster.*.min_master_version",
+    "google_storage_bucket.*.uniform_bucket_level_access",
 ]
 
 DEFAULT_LOW_PATTERNS = [
     "*.tags",
     "*.tags.*",
+    "*.labels",
+    "*.labels.*",
     "*.description",
 ]
 

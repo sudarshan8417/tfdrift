@@ -41,6 +41,7 @@ def discover_workspaces(
     paths: list[str],
     exclude_patterns: list[str],
     base_dir: str = ".",
+    max_depth: int | None = None,
 ) -> list[Path]:
     """Find all Terraform workspace directories.
 
@@ -68,6 +69,16 @@ def discover_workspaces(
             workspace_dir = child.parent
             if workspace_dir in workspaces:
                 continue
+
+            # Check max depth
+            if max_depth is not None:
+                try:
+                    rel = workspace_dir.relative_to(root)
+                    depth = len(rel.parts)
+                    if depth > max_depth:
+                        continue
+                except ValueError:
+                    continue
 
             # Check exclude patterns
             rel_path = str(workspace_dir.relative_to(base))
@@ -349,12 +360,16 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
         paths=config.scan_paths,
         exclude_patterns=config.exclude_patterns,
         base_dir=base_dir,
+        max_depth=config.max_depth,
     )
 
     logger.info("Found %d Terraform workspace(s)", len(workspaces))
 
     if not workspaces:
-        logger.warning("No Terraform workspaces found in scan paths: %s", config.scan_paths)
+        logger.warning(
+            "No Terraform workspaces found in scan paths: %s",
+            config.scan_paths,
+        )
 
     # Scan each workspace
     for workspace in workspaces:
@@ -369,6 +384,9 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
             )
         elif result.error:
             logger.error("Error scanning %s: %s", workspace, result.error)
+            if config.exit_on_error:
+                logger.error("Stopping scan (--exit-on-error)")
+                break
         else:
             logger.info("No drift in %s", workspace)
 

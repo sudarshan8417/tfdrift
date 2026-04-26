@@ -39,6 +39,8 @@ class NotificationConfig:
     slack_min_severity: str = "high"
     webhook_url: str | None = None
     webhook_method: str = "POST"
+    pagerduty_routing_key: str | None = None
+    pagerduty_min_severity: str = "critical"
 
 
 @dataclass
@@ -67,6 +69,8 @@ class TfdriftConfig:
     var_files: list[str] = field(default_factory=list)
     vars: dict[str, str] = field(default_factory=dict)
     auto_detect_var_files: bool = True
+    max_depth: int | None = None
+    exit_on_error: bool = False
 
     def should_ignore(self, resource_address: str, attribute: str | None = None) -> bool:
         """Check if drift on a resource/attribute should be ignored."""
@@ -159,12 +163,21 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         )
         or None,
         slack_channel=notif_config.get("slack", {}).get("channel"),
-        slack_min_severity=notif_config.get("slack", {}).get("min_severity", "high"),
+        slack_min_severity=notif_config.get("slack", {}).get(
+            "min_severity", "high"
+        ),
         webhook_url=_expand_env_vars(
             notif_config.get("webhook", {}).get("url", "")
         )
         or None,
         webhook_method=notif_config.get("webhook", {}).get("method", "POST"),
+        pagerduty_routing_key=_expand_env_vars(
+            notif_config.get("pagerduty", {}).get("routing_key", "")
+        )
+        or None,
+        pagerduty_min_severity=notif_config.get("pagerduty", {}).get(
+            "min_severity", "critical"
+        ),
     )
 
     remediation = RemediationConfig(
@@ -191,4 +204,6 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         var_files=scan_config.get("var_files", []),
         vars=scan_config.get("vars", {}),
         auto_detect_var_files=scan_config.get("auto_detect_var_files", True),
+        max_depth=scan_config.get("max_depth"),
+        exit_on_error=scan_config.get("exit_on_error", False),
     )
