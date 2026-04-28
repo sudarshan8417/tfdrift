@@ -1,7 +1,11 @@
-"""Drift detection engine.
+"""The main drift detection engine.
 
-Discovers Terraform workspaces, runs `terraform plan`, and parses
-the JSON output to identify drifted resources.
+This is where the actual work happens: find terraform workspaces,
+shell out to `terraform plan -json`, parse the JSON diff, and
+figure out what drifted and how bad it is.
+
+NOTE: This calls terraform as a subprocess. Make sure it's installed
+and that the workspace has valid credentials configured.
 """
 
 from __future__ import annotations
@@ -217,11 +221,15 @@ def parse_plan_changes(
     classifier: SeverityClassifier,
     config: TfdriftConfig,
 ) -> list[DriftedResource]:
-    """Parse terraform plan JSON and extract drifted resources."""
+    """Walk through terraform plan JSON and pull out everything that changed.
+
+    The plan JSON format is documented (loosely) at:
+    https://developer.hashicorp.com/terraform/internals/json-format
+    """
     drifted = []
 
     for change in plan_json.get("resource_changes", []):
-        # Skip data sources
+        # data sources show up in the plan but aren't real resources
         if change.get("mode") == "data":
             continue
 
@@ -229,7 +237,6 @@ def parse_plan_changes(
         action_key = ",".join(actions) if isinstance(actions, list) else str(actions)
         action = ACTION_MAP.get(action_key, ChangeAction.UPDATE)
 
-        # Skip no-ops
         if action == ChangeAction.NO_OP:
             continue
 
@@ -238,7 +245,8 @@ def parse_plan_changes(
         resource_name = change.get("name", "")
         module = change.get("module_address")
 
-        # Extract attribute-level changes
+        # terraform gives us before/after snapshots of the resource
+        # we diff them to find exactly which attributes changed
         before = change.get("change", {}).get("before") or {}
         after = change.get("change", {}).get("after") or {}
         after_sensitive = change.get("change", {}).get("after_sensitive") or {}

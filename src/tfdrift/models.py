@@ -1,4 +1,8 @@
-"""Data models for tfdrift."""
+"""Core data models used throughout tfdrift.
+
+Nothing fancy here -- just dataclasses that hold scan results,
+drifted resource info, and severity levels.
+"""
 
 from __future__ import annotations
 

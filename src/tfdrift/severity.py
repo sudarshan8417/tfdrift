@@ -1,7 +1,11 @@
-"""Severity classification engine for drift detection.
+"""Severity classification for drifted resources.
 
-Classifies drifted resources by security impact based on resource type
-and attribute. Users can override these via .tfdrift.yml configuration.
+The idea: not all drift is equal. Someone changing a tag is whatever,
+but someone opening up a security group to 0.0.0.0/0 is a fire.
+This module maps resource types + attributes to severity levels
+using fnmatch patterns, so you can customize it in .tfdrift.yml.
+
+Ships with ~60 built-in rules for AWS, Azure, and GCP.
 """
 
 from __future__ import annotations
@@ -132,6 +136,8 @@ class SeverityClassifier:
             return Severity.HIGH
         return Severity.MEDIUM
 
+    # TODO: consider adding support for regex patterns alongside fnmatch.
+    # fnmatch works well for simple cases but gets ugly for complex matching.
     def _match_pattern(self, target: str) -> Severity:
         """Match a resource.attribute pattern against severity rules."""
         for pattern in self.critical_patterns:

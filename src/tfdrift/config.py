@@ -1,6 +1,8 @@
-"""Configuration loader for tfdrift.
+"""Config loading for tfdrift.
 
-Loads settings from .tfdrift.yml and .tfdriftignore files.
+Handles .tfdrift.yml parsing, .tfdriftignore rules, and
+merging everything into a single TfdriftConfig object.
+Env vars like ${SLACK_WEBHOOK_URL} get expanded automatically.
 """
 
 from __future__ import annotations

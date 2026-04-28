@@ -1,7 +1,14 @@
-"""Auto-remediation engine for Terraform drift.
+"""Auto-remediation for detected drift.
 
-Applies terraform apply to fix detected drift, with safety guards
-to prevent accidental damage.
+This is the scary part -- actually running `terraform apply` to
+fix drift. Lots of safety guards here because the last thing we
+want is to accidentally nuke someone's database.
+
+Safety checks:
+- Environment allowlist (only fix dev/staging by default)
+- Max change limit (won't apply if too many resources changed)
+- Blocks destructive actions on CRITICAL resources
+- Requires explicit --confirm flag (no accidental applies)
 """
 
 from __future__ import annotations
@@ -33,9 +40,10 @@ def check_safety_guards(
     config: RemediationConfig,
     environment: str | None = None,
 ) -> str | None:
-    """Check if it's safe to auto-remediate this workspace.
+    """Run through all the reasons we might NOT want to auto-apply.
 
-    Returns None if safe, or a reason string if remediation should be skipped.
+    Returns None if safe to proceed, or a string explaining why not.
+    Being paranoid here is a feature, not a bug.
     """
     # Check environment allowlist
     if config.allowed_environments and environment:

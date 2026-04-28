@@ -1,6 +1,13 @@
-"""Output reporters for drift scan results.
+"""Output formatting and notifications.
 
-Supports table (rich), JSON, Markdown, and Slack webhook output.
+Handles all the ways we present drift results to the user:
+- Rich terminal tables (the default)
+- JSON (for piping to jq or other tools)
+- Markdown (for PRs and reports)
+- HTML (standalone report page)
+- Slack webhooks
+- PagerDuty Events API v2
+- Generic webhooks
 """
 
 from __future__ import annotations
