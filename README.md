@@ -2,6 +2,7 @@
 
 **Continuous Terraform drift detection, reporting, and auto-remediation.**
 
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/
 [![PyPI version](https://img.shields.io/pypi/v/tfdrift.svg)](https://pypi.org/project/tfdrift/)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/sudarshan8417/tfdrift/actions/workflows/ci.yml/badge.svg)](https://github.com/sudarshan8417/tfdrift/actions)
