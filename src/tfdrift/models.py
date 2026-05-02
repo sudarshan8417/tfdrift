@@ -142,7 +142,7 @@ class WorkspaceScanResult:
             "drifted_resources": [r.to_dict() for r in self.drifted_resources],
         }
 
-
+# # This is the top-level object that gets serialized to JSON/Markdown output
 @dataclass
 class ScanReport:
     """Aggregated report across all workspaces."""
