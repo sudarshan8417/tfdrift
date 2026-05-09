@@ -1,5 +1,6 @@
 """Tests for CLI behavior."""
 from click.testing import CliRunner
+
 from tfdrift.cli import main
 
 
