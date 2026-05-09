@@ -50,6 +50,54 @@ tfdrift scan --format json
 tfdrift scan --format markdown --output drift-report.md
 ```
 
+### Try it locally (no cloud credentials needed)
+
+Simulate drift using Terraform's `null` provider and a local backend:
+
+```bash
+# 1. Create a workspace and apply initial state
+mkdir -p /tmp/tfdrift-demo && cat > /tmp/tfdrift-demo/main.tf <<'EOF'
+terraform {
+  required_providers {
+    null = { source = "hashicorp/null", version = "~> 3.0" }
+  }
+  backend "local" {}
+}
+
+resource "null_resource" "server" {
+  triggers = { instance_type = "t3.micro", region = "us-east-1" }
+}
+
+resource "null_resource" "db" {
+  triggers = { engine = "postgres", version = "14" }
+}
+EOF
+
+cd /tmp/tfdrift-demo && terraform init && terraform apply -auto-approve
+
+# 2. Simulate drift — change config without updating state
+sed -i 's/t3.micro/t3.large/; s/us-east-1/us-west-2/; s/version = "14"/version = "15"/' main.tf
+
+# 3. Run tfdrift
+tfdrift scan --path /tmp/tfdrift-demo
+```
+
+Expected output:
+
+```
+⚠️  Drift detected: 2 resource(s) across 1/1 workspace(s)
+
+🟡 medium: 2
+
+📂 /tmp/tfdrift-demo (2 drifted, 0.3s)
+┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━┓
+┃ Severity ┃ Resource              ┃ Action  ┃ Changed attributes ┃
+┡━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━┩
+│ MEDIUM   │ null_resource.db      │ replace │ id, triggers       │
+│ MEDIUM   │ null_resource.server  │ replace │ id, triggers       │
+└──────────┴───────────────────────┴─────────┴────────────────────┘
+```
+
 ### Watch mode (continuous monitoring)
 
 ```bash
