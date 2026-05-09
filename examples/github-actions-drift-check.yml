@@ -1,0 +1,26 @@
+# Example: Run tfdrift on a schedule to detect drift
+name: Terraform Drift Check
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install tfdrift
+      - run: tfdrift scan --format json --output drift-report.json
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: drift-report
+          path: drift-report.json
