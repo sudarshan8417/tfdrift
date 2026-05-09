@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+_SEVERITY_ORDER = ("info", "low", "medium", "high", "critical")
+
 
 class Severity(str, Enum):
     """Drift severity levels."""
@@ -22,12 +24,8 @@ class Severity(str, Enum):
     LOW = "low"
     INFO = "info"
 
-    @staticmethod
-    def _order() -> list[str]:
-        return ["info", "low", "medium", "high", "critical"]
-
     def _rank(self) -> int:
-        return self._order().index(self.value)
+        return _SEVERITY_ORDER.index(self.value)
 
     def __lt__(self, other: object) -> bool:  # type: ignore[override]
         if not isinstance(other, Severity):
@@ -142,7 +140,6 @@ class WorkspaceScanResult:
             "drifted_resources": [r.to_dict() for r in self.drifted_resources],
         }
 
-# # This is the top-level object that gets serialized to JSON/Markdown output
 @dataclass
 class ScanReport:
     """Aggregated report across all workspaces."""

@@ -159,24 +159,20 @@ def scan(
             report = run_scan(config, base_dir=path)
 
     # Output
+    if output_format == "json":
+        output = report_json(report, output_path)
+    elif output_format == "markdown":
+        output = report_markdown(report, output_path)
+    else:
+        output = None
+
     if not quiet:
         if output_format == "table":
             report_table(report, console)
-        elif output_format == "json":
-            json_output = report_json(report, output_path)
-            if not output_path:
-                console.print(json_output)
-        elif output_format == "markdown":
-            md_output = report_markdown(report, output_path)
-            if not output_path:
-                console.print(md_output)
+        elif output is not None and not output_path:
+            console.print(output)
         if output_path and output_format != "table":
             console.print(f"📄 Report written to {output_path}")
-    elif output_path:
-        if output_format == "json":
-            report_json(report, output_path)
-        elif output_format == "markdown":
-            report_markdown(report, output_path)
 
     # Notifications
     _send_notifications(report, config, slack_webhook)
@@ -378,31 +374,23 @@ def _send_notifications(
     if not report.has_drift:
         return
 
-    webhook_url = slack_webhook_override or (
-        config.notifications.slack_webhook_url if config.notifications else None
-    )
+    webhook_url = slack_webhook_override or config.notifications.slack_webhook_url
     if webhook_url:
         notify_slack(
             report,
             webhook_url,
-            channel=(
-                config.notifications.slack_channel
-                if config.notifications else None
-            ),
-            min_severity=(
-                config.notifications.slack_min_severity
-                if config.notifications else "high"
-            ),
+            channel=config.notifications.slack_channel,
+            min_severity=config.notifications.slack_min_severity,
         )
 
-    if config.notifications and config.notifications.webhook_url:
+    if config.notifications.webhook_url:
         notify_webhook(
             report,
             config.notifications.webhook_url,
             config.notifications.webhook_method,
         )
 
-    if config.notifications and config.notifications.pagerduty_routing_key:
+    if config.notifications.pagerduty_routing_key:
         notify_pagerduty(
             report,
             config.notifications.pagerduty_routing_key,

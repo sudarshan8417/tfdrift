@@ -91,15 +91,7 @@ def discover_workspaces(
 
             workspaces.append(workspace_dir)
 
-    # Deduplicate and sort
-    seen = set()
-    unique = []
-    for ws in workspaces:
-        if ws not in seen:
-            seen.add(ws)
-            unique.append(ws)
-
-    return sorted(unique)
+    return sorted(set(workspaces))
 
 
 def run_terraform_plan(

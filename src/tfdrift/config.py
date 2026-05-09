@@ -81,9 +81,15 @@ class TfdriftConfig:
 
 def _expand_env_vars(value: str) -> str:
     """Expand environment variables in string values like ${VAR_NAME}."""
-    if isinstance(value, str):
-        return os.path.expandvars(value)
-    return value
+    return os.path.expandvars(value)
+
+
+def _parse_ignore_pattern(pattern: str) -> IgnoreRule:
+    """Parse a single ignore pattern string into an IgnoreRule."""
+    parts = pattern.rsplit(".", 1)
+    if len(parts) == 2:
+        return IgnoreRule(resource=parts[0], attribute=parts[1])
+    return IgnoreRule(resource=pattern)
 
 
 def _parse_ignore_rules_from_config(config: dict) -> list[IgnoreRule]:
@@ -98,33 +104,21 @@ def _parse_ignore_rules_from_config(config: dict) -> list[IgnoreRule]:
                 )
             )
         elif isinstance(entry, str):
-            # Simple pattern: "aws_autoscaling_group.*.desired_capacity"
-            parts = entry.rsplit(".", 1)
-            if len(parts) == 2:
-                rules.append(IgnoreRule(resource=parts[0], attribute=parts[1]))
-            else:
-                rules.append(IgnoreRule(resource=entry))
+            rules.append(_parse_ignore_pattern(entry))
     return rules
 
 
 def _parse_ignore_file(path: Path) -> list[IgnoreRule]:
     """Parse a .tfdriftignore file."""
-    rules: list[IgnoreRule] = []
     if not path.exists():
-        return rules
+        return []
 
+    rules: list[IgnoreRule] = []
     for line in path.read_text().splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Pattern format: resource_type.name.attribute
-        # e.g., aws_autoscaling_group.*.desired_capacity
-        parts = line.rsplit(".", 1)
-        if len(parts) == 2:
-            rules.append(IgnoreRule(resource=parts[0], attribute=parts[1]))
-        else:
-            rules.append(IgnoreRule(resource=line))
-
+        rules.append(_parse_ignore_pattern(line))
     return rules
 
 

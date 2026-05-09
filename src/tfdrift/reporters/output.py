@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from tfdrift.models import ScanReport, Severity
+from tfdrift.models import DriftedResource, ScanReport, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,17 @@ SEVERITY_EMOJI = {
     Severity.LOW: "🔵",
     Severity.INFO: "⚪",
 }
+
+
+def _qualifying_resources(
+    report: ScanReport, min_sev: Severity
+) -> list[tuple[str, DriftedResource]]:
+    return [
+        (result.workspace_path, resource)
+        for result in report.results
+        for resource in result.drifted_resources
+        if resource.severity >= min_sev
+    ]
 
 
 def report_table(report: ScanReport, console: Console | None = None) -> None:
@@ -209,14 +220,7 @@ def notify_slack(
         return False
 
     min_sev = Severity(min_severity)
-
-    # Filter to resources at or above minimum severity
-    critical_resources = []
-    for result in report.results:
-        for resource in result.drifted_resources:
-            if resource.severity >= min_sev:
-                critical_resources.append((result.workspace_path, resource))
-
+    critical_resources = _qualifying_resources(report, min_sev)
     if not critical_resources:
         return False
 
@@ -313,16 +317,7 @@ def notify_pagerduty(
         return False
 
     min_sev = Severity(min_severity)
-
-    # Check if any resources meet the severity threshold
-    has_qualifying = False
-    for result in report.results:
-        for resource in result.drifted_resources:
-            if resource.severity >= min_sev:
-                has_qualifying = True
-                break
-
-    if not has_qualifying:
+    if not _qualifying_resources(report, min_sev):
         return False
 
     counts = report.severity_counts()
