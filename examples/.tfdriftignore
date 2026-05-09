@@ -1,0 +1,12 @@
+# Autoscaling — these change constantly by design
+aws_autoscaling_group.*.desired_capacity
+aws_ecs_service.*.desired_count
+
+# Tags managed by external cost allocation tools
+*.tags.CostCenter
+*.tags.LastModified
+*.tags.UpdatedBy
+
+# Terraform-managed metadata
+*.tags.terraform
+*.tags.ManagedBy
