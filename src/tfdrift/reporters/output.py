@@ -14,13 +14,14 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any
 
 import requests
 from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from tfdrift.models import DriftedResource, ScanReport, Severity
+from tfdrift.models import AttributeChange, DriftedResource, ScanReport, Severity
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,29 @@ SEVERITY_EMOJI = {
     Severity.LOW: "🔵",
     Severity.INFO: "⚪",
 }
+
+
+def _format_change(change: AttributeChange) -> str:
+    if change.sensitive:
+        return f"{change.attribute}: (sensitive)"
+
+    old, new = change.old_value, change.new_value
+
+    if isinstance(old, list) or isinstance(new, list):
+        old_n = len(old) if isinstance(old, list) else 0
+        new_n = len(new) if isinstance(new, list) else 0
+        return f"{change.attribute}: [{old_n}] → [{new_n}]"
+
+    if isinstance(old, dict) or isinstance(new, dict):
+        return f"{change.attribute}: (map changed)"
+
+    def _trunc(v: Any, n: int = 18) -> str:
+        if v is None:
+            return "∅"
+        s = str(v)
+        return (s[:n] + "…") if len(s) > n else s
+
+    return f"{change.attribute}: {_trunc(old)} → {_trunc(new)}"
 
 
 def _qualifying_resources(
@@ -101,13 +125,13 @@ def report_table(report: ScanReport, console: Console | None = None) -> None:
         table.add_column("Severity", width=10)
         table.add_column("Resource", min_width=30)
         table.add_column("Action", width=10)
-        table.add_column("Changed attributes", min_width=20)
+        table.add_column("Changes", min_width=40)
 
         for resource in result.drifted_resources:
             sev_style = SEVERITY_COLORS.get(resource.severity, "")
             sev_text = Text(resource.severity.value.upper(), style=sev_style)
 
-            changed_attrs = ", ".join(c.attribute for c in resource.changes) or "—"
+            changed_attrs = "\n".join(_format_change(c) for c in resource.changes) or "—"
 
             table.add_row(
                 sev_text,
