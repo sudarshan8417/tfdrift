@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from datetime import datetime
 
 import click
 from rich.console import Console
@@ -228,28 +229,31 @@ def watch(
     if binary:
         config.terraform_binary = binary
 
-    console.print(
-        f"👀 Watching for drift every {interval} (Ctrl+C to stop)\n",
-        style="bold",
-    )
-
     scan_count = 0
     try:
         while True:
             scan_count += 1
-            console.print(f"--- Scan #{scan_count} ---", style="dim")
+            console.clear()
+            console.print(
+                f"👀 tfdrift watch — every {interval} — "
+                f"scan #{scan_count} at {datetime.now().strftime('%H:%M:%S')} "
+                f"(Ctrl+C to stop)",
+                style="bold",
+            )
 
-            report = run_scan(config, base_dir=path)
+            with console.status("[bold]Scanning for drift...", spinner="dots"):
+                report = run_scan(config, base_dir=path)
+
             report_table(report, console)
 
             if report.has_drift:
                 _send_notifications(report, config, None)
 
-            console.print(f"\nNext scan in {interval}...\n", style="dim")
+            console.print(f"\nNext scan in {interval}...", style="dim")
             time.sleep(seconds)
 
     except KeyboardInterrupt:
-        console.print("\n\n👋 Watch mode stopped.", style="bold")
+        console.print("\n👋 Watch mode stopped.", style="bold")
 
 
 @main.command()
