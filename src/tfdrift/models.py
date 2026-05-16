@@ -173,6 +173,10 @@ class ScanReport:
         return max(severities) if severities else None
 
     @property
+    def total_duration_seconds(self) -> float:
+        return sum(r.scan_duration_seconds for r in self.results)
+
+    @property
     def errors(self) -> list[str]:
         return [r.error for r in self.results if r.error]
 
@@ -196,6 +200,7 @@ class ScanReport:
                 "max_severity": self.max_severity.value if self.max_severity else None,
                 "severity_counts": self.severity_counts(),
                 "has_errors": len(self.errors) > 0,
+                "total_duration_seconds": round(self.total_duration_seconds, 2),
             },
             "scan_started_at": self.scan_started_at,
             "scan_finished_at": self.scan_finished_at,

@@ -85,12 +85,14 @@ def report_table(report: ScanReport, console: Console | None = None) -> None:
     if report.has_drift:
         console.print(
             f"\n⚠️  Drift detected: {report.total_drift_count} resource(s) "
-            f"across {report.workspaces_with_drift}/{report.total_workspaces} workspace(s)\n",
+            f"across {report.workspaces_with_drift}/{report.total_workspaces} workspace(s) "
+            f"in {report.total_duration_seconds:.1f}s\n",
             style="bold yellow",
         )
     else:
         console.print(
-            f"\n✅ No drift detected across {report.total_workspaces} workspace(s)\n",
+            f"\n✅ No drift detected across {report.total_workspaces} workspace(s) "
+            f"in {report.total_duration_seconds:.1f}s\n",
             style="bold green",
         )
         return
@@ -181,6 +183,7 @@ def report_markdown(report: ScanReport, output_path: str | None = None) -> str:
         lines.append(
             f"**Status:** ✅ No drift detected across {report.total_workspaces} workspace(s)\n"
         )
+    lines.append(f"**Scan duration:** {report.total_duration_seconds:.1f}s\n")
 
     # Severity summary
     counts = report.severity_counts()
