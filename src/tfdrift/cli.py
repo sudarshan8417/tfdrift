@@ -221,7 +221,13 @@ def watch(
     """Continuously monitor for drift at a set interval."""
     setup_logging(verbose)
 
-    seconds = _parse_interval(interval)
+    try:
+        seconds = _parse_interval(interval)
+    except ValueError:
+        raise click.BadParameter(
+            f"'{interval}' is not a valid interval. Use formats like 30s, 5m, or 1h.",
+            param_hint="--interval",
+        )
     config = load_config(config_path=config_path, base_dir=path)
 
     if slack_webhook:
