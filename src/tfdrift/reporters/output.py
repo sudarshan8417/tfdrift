@@ -210,12 +210,12 @@ def report_markdown(report: ScanReport, output_path: str | None = None) -> str:
             f"| Scan time: {result.scan_duration_seconds:.1f}s\n"
         )
 
-        lines.append("| Severity | Resource | Action | Changed attributes |")
-        lines.append("|----------|----------|--------|--------------------|")
+        lines.append("| Severity | Resource | Action | Changes |")
+        lines.append("|----------|----------|--------|---------|")
 
         for resource in result.drifted_resources:
             emoji = SEVERITY_EMOJI.get(resource.severity, "")
-            changed = ", ".join(f"`{c.attribute}`" for c in resource.changes) or "—"
+            changed = ", ".join(_format_change(c) for c in resource.changes) or "—"
             lines.append(
                 f"| {emoji} {resource.severity.value} | `{resource.full_address}` "
                 f"| {resource.action.value} | {changed} |"
