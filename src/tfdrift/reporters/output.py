@@ -123,9 +123,16 @@ def report_table(
         if not result.has_drift:
             continue
 
+        visible = [
+            r for r in result.drifted_resources
+            if not min_sev or r.severity >= min_sev
+        ]
+        if not visible:
+            continue
+
         console.print(
             f"📂 {result.workspace_path} "
-            f"({result.drift_count} drifted, {result.scan_duration_seconds:.1f}s)",
+            f"({len(visible)} drifted, {result.scan_duration_seconds:.1f}s)",
             style="bold",
         )
 
@@ -135,9 +142,7 @@ def report_table(
         table.add_column("Action", width=10)
         table.add_column("Changes", min_width=40)
 
-        for resource in result.drifted_resources:
-            if min_sev and resource.severity < min_sev:
-                continue
+        for resource in visible:
             sev_style = SEVERITY_COLORS.get(resource.severity, "")
             sev_text = Text(resource.severity.value.upper(), style=sev_style)
 
