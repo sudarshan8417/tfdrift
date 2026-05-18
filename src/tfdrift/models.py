@@ -140,6 +140,7 @@ class WorkspaceScanResult:
             "drifted_resources": [r.to_dict() for r in self.drifted_resources],
         }
 
+
 @dataclass
 class ScanReport:
     """Aggregated report across all workspaces."""
