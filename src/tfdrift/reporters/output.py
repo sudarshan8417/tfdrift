@@ -76,10 +76,16 @@ def _qualifying_resources(
     ]
 
 
-def report_table(report: ScanReport, console: Console | None = None) -> None:
+def report_table(
+    report: ScanReport,
+    console: Console | None = None,
+    min_severity: str | None = None,
+) -> None:
     """Print a rich table summary to the console."""
     if console is None:
         console = Console()
+
+    min_sev = Severity(min_severity) if min_severity else None
 
     # Summary header
     if report.has_drift:
@@ -130,6 +136,8 @@ def report_table(report: ScanReport, console: Console | None = None) -> None:
         table.add_column("Changes", min_width=40)
 
         for resource in result.drifted_resources:
+            if min_sev and resource.severity < min_sev:
+                continue
             sev_style = SEVERITY_COLORS.get(resource.severity, "")
             sev_text = Text(resource.severity.value.upper(), style=sev_style)
 
@@ -168,7 +176,11 @@ def report_json(report: ScanReport, output_path: str | None = None) -> str:
     return json_str
 
 
-def report_markdown(report: ScanReport, output_path: str | None = None) -> str:
+def report_markdown(
+    report: ScanReport,
+    output_path: str | None = None,
+    min_severity: str | None = None,
+) -> str:
     """Generate a Markdown drift report."""
     lines: list[str] = []
     lines.append("# Terraform Drift Report\n")
@@ -197,6 +209,8 @@ def report_markdown(report: ScanReport, output_path: str | None = None) -> str:
                 lines.append(f"| {SEVERITY_EMOJI.get(sev, '')} {sev.value} | {count} |")
         lines.append("")
 
+    min_sev = Severity(min_severity) if min_severity else None
+
     # Per-workspace details
     for result in report.results:
         if result.error:
@@ -207,16 +221,23 @@ def report_markdown(report: ScanReport, output_path: str | None = None) -> str:
         if not result.has_drift:
             continue
 
+        visible = [
+            r for r in result.drifted_resources
+            if not min_sev or r.severity >= min_sev
+        ]
+        if not visible:
+            continue
+
         lines.append(f"## 📂 {result.workspace_path}\n")
         lines.append(
-            f"Drifted resources: {result.drift_count} "
+            f"Drifted resources: {len(visible)} "
             f"| Scan time: {result.scan_duration_seconds:.1f}s\n"
         )
 
         lines.append("| Severity | Resource | Action | Changes |")
         lines.append("|----------|----------|--------|---------|")
 
-        for resource in result.drifted_resources:
+        for resource in visible:
             emoji = SEVERITY_EMOJI.get(resource.severity, "")
             changed = ", ".join(_format_change(c) for c in resource.changes) or "—"
             lines.append(

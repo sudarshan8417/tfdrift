@@ -114,6 +114,12 @@ def main():
     "--verbose", "-v", is_flag=True, default=False,
     help="Enable verbose logging",
 )
+@click.option(
+    "--min-severity",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Only report drift at or above this severity level",
+)
 def scan(
     path: str,
     output_format: str,
@@ -131,6 +137,7 @@ def scan(
     exit_on_error: bool,
     binary: str | None,
     verbose: bool,
+    min_severity: str | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -163,13 +170,13 @@ def scan(
     if output_format == "json":
         output = report_json(report, output_path)
     elif output_format == "markdown":
-        output = report_markdown(report, output_path)
+        output = report_markdown(report, output_path, min_severity=min_severity)
     else:
         output = None
 
     if not quiet:
         if output_format == "table":
-            report_table(report, console)
+            report_table(report, console, min_severity=min_severity)
         elif output is not None and not output_path:
             console.print(output)
         if output_path and output_format != "table":
