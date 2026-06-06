@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.3] - 2026-06-06
+
+### Added
+- `--format csv` output for `tfdrift scan` — one row per drifted resource, pipe-separated multi-attribute columns, compatible with Excel/Sheets/pandas
+- Error workspaces appear as a dedicated row in CSV output with `severity=error`
+- `--min-severity` filter applies to CSV output the same as table and markdown
+
+## [0.2.2] - 2026-05-28
+
+### Added
+- `--min-severity` filter for `tfdrift scan` — only report drift at or above the specified level (info/low/medium/high/critical)
+- Total scan duration displayed in table output summary
+- Before/after values shown in Markdown report change column (previously attribute names only)
+
+### Fixed
+- `--interval` in `tfdrift watch` now validates the format and surfaces a clear error for invalid values
+- Workspace block skipped in table output when all resources are filtered out by `--min-severity`
+- User-Agent header updated to reflect current version
+
+## [0.2.1] - 2026-05-14
+
+### Added
+- Watch mode clears the terminal between scans and shows a live header with scan count and timestamp
+- Before/after values shown in table output change column (previously only attribute names were listed)
+
+### Changed
+- Severity ranking, deduplication logic, and notification helpers refactored for clarity
+
+## [0.2.0] - 2026-05-01
+
+### Added
+- PagerDuty Events API v2 notification support
+- HTML report generation (`tfdrift report` command)
+- Azure and GCP severity classification rules
+- `--max-depth` flag to limit workspace discovery depth
+- `--exit-on-error` flag to stop scanning on first workspace error
+- `--quiet` flag for CI/CD pipelines (suppresses all output except errors)
+- Dockerfile for containerized usage
+
 ## [0.1.1] - 2026-04-21
 
 ### Added

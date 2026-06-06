@@ -18,7 +18,7 @@
 ## Features
 
 - **Multi-workspace scanning** — Recursively discovers all Terraform workspaces in a directory tree
-- **Structured drift reports** — JSON, Markdown, or human-readable table output
+- **Structured drift reports** — JSON, Markdown, CSV, or human-readable table output
 - **Severity classification** — Categorizes drift by risk level (critical/high/medium/low) based on resource type and attribute
 - **Slack & webhook notifications** — Get alerted the moment drift is detected
 - **Auto-remediation** — Optionally run `terraform apply` to fix drift (with safety guards)
@@ -48,6 +48,9 @@ tfdrift scan --format json
 
 # Output as Markdown report
 tfdrift scan --format markdown --output drift-report.md
+
+# Output as CSV (one row per drifted resource — great for spreadsheets or data pipelines)
+tfdrift scan --format csv --output drift-report.csv
 ```
 
 ### Try it locally (no cloud credentials needed)
@@ -271,6 +274,7 @@ tfdrift/
 | Slack/webhook alerts | ✅ | ✅ | ❌ | ✅ |
 | Watch mode | ✅ | ❌ | ❌ | ✅ |
 | Ignore rules | ✅ | ✅ | ❌ | ❌ |
+| JSON / Markdown / CSV output | ✅ | ❌ | ❌ | ✅ |
 | Cost | Free | Free | Free | $15K+/yr |
 | Language | Python | Go | Go (HCL) | Proprietary |
 

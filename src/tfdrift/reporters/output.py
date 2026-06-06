@@ -419,7 +419,7 @@ def notify_webhook(report: ScanReport, url: str, method: str = "POST") -> bool:
             timeout=10,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "tfdrift/0.2.2",
+                "User-Agent": "tfdrift/0.2.3",
             },
         )
         resp.raise_for_status()
