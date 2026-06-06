@@ -18,6 +18,7 @@ from tfdrift.reporters.output import (
     notify_pagerduty,
     notify_slack,
     notify_webhook,
+    report_csv,
     report_html,
     report_json,
     report_markdown,
@@ -55,7 +56,7 @@ def main():
 )
 @click.option(
     "--format", "-f", "output_format",
-    type=click.Choice(["table", "json", "markdown"]),
+    type=click.Choice(["table", "json", "markdown", "csv"]),
     default="table", help="Output format",
 )
 @click.option(
@@ -171,6 +172,8 @@ def scan(
         output = report_json(report, output_path)
     elif output_format == "markdown":
         output = report_markdown(report, output_path, min_severity=min_severity)
+    elif output_format == "csv":
+        output = report_csv(report, output_path, min_severity=min_severity)
     else:
         output = None
 

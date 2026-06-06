@@ -5,6 +5,7 @@ Handles all the ways we present drift results to the user:
 - JSON (for piping to jq or other tools)
 - Markdown (for PRs and reports)
 - HTML (standalone report page)
+- CSV (for spreadsheets and data pipelines)
 - Slack webhooks
 - PagerDuty Events API v2
 - Generic webhooks
@@ -12,6 +13,8 @@ Handles all the ways we present drift results to the user:
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from pathlib import Path
 from typing import Any
@@ -260,6 +263,73 @@ def report_markdown(
         return output_path
 
     return md_content
+
+
+def report_csv(
+    report: ScanReport,
+    output_path: str | None = None,
+    min_severity: str | None = None,
+) -> str:
+    """Generate a CSV drift report.
+
+    Columns: scan_time, workspace, severity, resource, resource_type,
+             action, changed_attributes, changes_detail
+    """
+    min_sev = Severity(min_severity) if min_severity else None
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "scan_time",
+        "workspace",
+        "severity",
+        "resource",
+        "resource_type",
+        "action",
+        "changed_attributes",
+        "changes_detail",
+    ])
+
+    for result in report.results:
+        if result.error:
+            writer.writerow([
+                report.scan_started_at,
+                result.workspace_path,
+                "error",
+                "",
+                "",
+                "",
+                "",
+                result.error,
+            ])
+            continue
+
+        for resource in result.drifted_resources:
+            if min_sev and resource.severity < min_sev:
+                continue
+
+            changed_attrs = "|".join(c.attribute for c in resource.changes)
+            changes_detail = "|".join(_format_change(c) for c in resource.changes)
+
+            writer.writerow([
+                report.scan_started_at,
+                result.workspace_path,
+                resource.severity.value,
+                resource.full_address,
+                resource.resource_type,
+                resource.action.value,
+                changed_attrs,
+                changes_detail,
+            ])
+
+    csv_content = buf.getvalue()
+
+    if output_path:
+        Path(output_path).write_text(csv_content)
+        logger.info("CSV report written to %s", output_path)
+        return output_path
+
+    return csv_content
 
 
 def notify_slack(

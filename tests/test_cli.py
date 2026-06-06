@@ -1,7 +1,19 @@
 """Tests for CLI behavior."""
+import csv
+import io
+
 from click.testing import CliRunner
 
 from tfdrift.cli import main
+from tfdrift.models import (
+    AttributeChange,
+    ChangeAction,
+    DriftedResource,
+    ScanReport,
+    Severity,
+    WorkspaceScanResult,
+)
+from tfdrift.reporters.output import report_csv
 
 
 def test_version():
@@ -23,3 +35,138 @@ def test_init_wont_overwrite(tmp_path):
     runner = CliRunner()
     result = runner.invoke(main, ["init", "--path", str(tmp_path)])
     assert "already exists" in result.output
+
+
+def _make_report_with_drift() -> ScanReport:
+    return ScanReport(
+        results=[
+            WorkspaceScanResult(
+                workspace_path="/tmp/ws",
+                drifted_resources=[
+                    DriftedResource(
+                        address="aws_instance.web",
+                        resource_type="aws_instance",
+                        resource_name="web",
+                        action=ChangeAction.UPDATE,
+                        severity=Severity.HIGH,
+                        changes=[
+                            AttributeChange(
+                                attribute="instance_type",
+                                old_value="t3.micro",
+                                new_value="t3.large",
+                            )
+                        ],
+                    ),
+                    DriftedResource(
+                        address="aws_s3_bucket.data",
+                        resource_type="aws_s3_bucket",
+                        resource_name="data",
+                        action=ChangeAction.UPDATE,
+                        severity=Severity.MEDIUM,
+                        changes=[
+                            AttributeChange(
+                                attribute="acl",
+                                old_value="private",
+                                new_value="public-read",
+                            )
+                        ],
+                    ),
+                ],
+            )
+        ]
+    )
+
+
+class TestReportCsv:
+    def test_csv_has_header(self):
+        report = ScanReport(results=[])
+        csv_out = report_csv(report)
+        reader = csv.DictReader(io.StringIO(csv_out))
+        assert reader.fieldnames == [
+            "scan_time", "workspace", "severity", "resource",
+            "resource_type", "action", "changed_attributes", "changes_detail",
+        ]
+
+    def test_csv_row_per_resource(self):
+        report = _make_report_with_drift()
+        csv_out = report_csv(report)
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        assert len(rows) == 2
+
+    def test_csv_row_values(self):
+        report = _make_report_with_drift()
+        csv_out = report_csv(report)
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        first = rows[0]
+        assert first["workspace"] == "/tmp/ws"
+        assert first["severity"] == "high"
+        assert first["resource"] == "aws_instance.web"
+        assert first["resource_type"] == "aws_instance"
+        assert first["action"] == "update"
+        assert first["changed_attributes"] == "instance_type"
+        assert "t3.micro" in first["changes_detail"]
+        assert "t3.large" in first["changes_detail"]
+
+    def test_csv_min_severity_filters_rows(self):
+        report = _make_report_with_drift()
+        csv_out = report_csv(report, min_severity="high")
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        assert len(rows) == 1
+        assert rows[0]["severity"] == "high"
+
+    def test_csv_no_drift_only_header(self):
+        report = ScanReport(results=[WorkspaceScanResult(workspace_path="/tmp/clean")])
+        csv_out = report_csv(report)
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        assert len(rows) == 0
+
+    def test_csv_error_workspace_appears_as_row(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path="/tmp/broken",
+                    error="terraform init failed",
+                )
+            ]
+        )
+        csv_out = report_csv(report)
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        assert len(rows) == 1
+        assert rows[0]["severity"] == "error"
+        assert "terraform init failed" in rows[0]["changes_detail"]
+
+    def test_csv_writes_to_file(self, tmp_path):
+        report = _make_report_with_drift()
+        out_file = tmp_path / "drift.csv"
+        result = report_csv(report, output_path=str(out_file))
+        assert result == str(out_file)
+        assert out_file.exists()
+        rows = list(csv.DictReader(out_file.open()))
+        assert len(rows) == 2
+
+    def test_csv_multiple_changes_pipe_separated(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path="/tmp/ws",
+                    drifted_resources=[
+                        DriftedResource(
+                            address="aws_instance.web",
+                            resource_type="aws_instance",
+                            resource_name="web",
+                            action=ChangeAction.UPDATE,
+                            severity=Severity.HIGH,
+                            changes=[
+                                AttributeChange("instance_type", "t3.micro", "t3.large"),
+                                AttributeChange("ami", "ami-old", "ami-new"),
+                            ],
+                        )
+                    ],
+                )
+            ]
+        )
+        csv_out = report_csv(report)
+        rows = list(csv.DictReader(io.StringIO(csv_out)))
+        attrs = rows[0]["changed_attributes"].split("|")
+        assert "instance_type" in attrs
+        assert "ami" in attrs
