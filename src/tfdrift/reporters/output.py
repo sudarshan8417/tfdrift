@@ -24,7 +24,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from tfdrift.models import AttributeChange, DriftedResource, ScanReport, Severity
+from tfdrift.models import AttributeChange, DriftedResource, ScanReport, Severity, WorkspaceScanResult
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +168,36 @@ def report_table(
             console.print(f"  • {err}", style="dim red")
 
 
-def report_json(report: ScanReport, output_path: str | None = None) -> str:
+def report_json(
+    report: ScanReport,
+    output_path: str | None = None,
+    min_severity: str | None = None,
+) -> str:
     """Output the report as JSON.
 
     If output_path is given, writes to file and returns the path.
     Otherwise returns the JSON string.
     """
+    if min_severity:
+        min_sev = Severity(min_severity)
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path=r.workspace_path,
+                    drifted_resources=[
+                        res for res in r.drifted_resources if res.severity >= min_sev
+                    ],
+                    error=r.error,
+                    scan_duration_seconds=r.scan_duration_seconds,
+                    terraform_version=r.terraform_version,
+                )
+                for r in report.results
+            ],
+            scan_started_at=report.scan_started_at,
+            scan_finished_at=report.scan_finished_at,
+            config_path=report.config_path,
+        )
+
     json_str = report.to_json(indent=2)
 
     if output_path:

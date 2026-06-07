@@ -169,7 +169,7 @@ def scan(
 
     # Output
     if output_format == "json":
-        output = report_json(report, output_path)
+        output = report_json(report, output_path, min_severity=min_severity)
     elif output_format == "markdown":
         output = report_markdown(report, output_path, min_severity=min_severity)
     elif output_format == "csv":
