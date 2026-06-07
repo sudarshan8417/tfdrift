@@ -220,6 +220,12 @@ def scan(
     "--verbose", "-v", is_flag=True, default=False,
     help="Enable verbose logging",
 )
+@click.option(
+    "--min-severity",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Only show drift at or above this severity level",
+)
 def watch(
     path: str,
     interval: str,
@@ -227,6 +233,7 @@ def watch(
     slack_webhook: str | None,
     binary: str | None,
     verbose: bool,
+    min_severity: str | None,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
     setup_logging(verbose)
@@ -260,7 +267,7 @@ def watch(
             with console.status("[bold]Scanning for drift...", spinner="dots"):
                 report = run_scan(config, base_dir=path)
 
-            report_table(report, console)
+            report_table(report, console, min_severity=min_severity)
 
             if report.has_drift:
                 _send_notifications(report, config, None)

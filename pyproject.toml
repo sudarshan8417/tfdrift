@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["terraform", "drift", "infrastructure", "devops", "iac", "aws"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",
     "Programming Language :: Python :: 3",
