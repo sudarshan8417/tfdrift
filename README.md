@@ -211,7 +211,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install tfdrift
-      - run: tfdrift scan --format json --output drift-report.json
+      - run: tfdrift scan --format json --output drift-report.json --min-severity low
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -231,7 +231,7 @@ drift-check:
     - pip install tfdrift
     - apt-get update && apt-get install -y terraform
   script:
-    - tfdrift scan --format json --output drift-report.json
+    - tfdrift scan --format json --output drift-report.json --min-severity low
   rules:
     - if: $CI_PIPELINE_SOURCE == "schedule"
   artifacts:
