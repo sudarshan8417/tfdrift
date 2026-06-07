@@ -24,7 +24,13 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from tfdrift.models import AttributeChange, DriftedResource, ScanReport, Severity, WorkspaceScanResult
+from tfdrift.models import (
+    AttributeChange,
+    DriftedResource,
+    ScanReport,
+    Severity,
+    WorkspaceScanResult,
+)
 
 logger = logging.getLogger(__name__)
 
