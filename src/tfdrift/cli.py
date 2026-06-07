@@ -297,12 +297,19 @@ def watch(
     "--verbose", "-v", is_flag=True, default=False,
     help="Enable verbose logging",
 )
+@click.option(
+    "--min-severity",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Only include drift at or above this severity level",
+)
 def report(
     path: str,
     output_path: str,
     config_path: str | None,
     binary: str | None,
     verbose: bool,
+    min_severity: str | None,
 ) -> None:
     """Generate an HTML drift report."""
     setup_logging(verbose)
@@ -314,7 +321,7 @@ def report(
     with console.status("[bold]Scanning for drift...", spinner="dots"):
         scan_report = run_scan(config, base_dir=path)
 
-    report_html(scan_report, output_path)
+    report_html(scan_report, output_path, min_severity=min_severity)
     console.print(f"📄 HTML report written to {output_path}", style="green")
 
     if scan_report.has_drift:

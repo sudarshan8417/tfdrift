@@ -518,8 +518,13 @@ def notify_pagerduty(
         return False
 
 
-def report_html(report: ScanReport, output_path: str) -> str:
+def report_html(
+    report: ScanReport,
+    output_path: str,
+    min_severity: str | None = None,
+) -> str:
     """Generate a standalone HTML drift report."""
+    min_sev = Severity(min_severity) if min_severity else None
     counts = report.severity_counts()
 
     rows_html = ""
@@ -531,6 +536,8 @@ def report_html(report: ScanReport, output_path: str) -> str:
             )
             continue
         for resource in result.drifted_resources:
+            if min_sev and resource.severity < min_sev:
+                continue
             sev = resource.severity.value
             emoji = SEVERITY_EMOJI.get(resource.severity, "")
             changed = ", ".join(c.attribute for c in resource.changes) or "—"
