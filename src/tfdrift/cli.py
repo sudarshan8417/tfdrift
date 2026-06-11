@@ -253,6 +253,10 @@ def scan(
     default=None,
     help="Only show drift at or above this severity level",
 )
+@click.option(
+    "--quiet", "-q", is_flag=True, default=False,
+    help="Suppress all output except errors. Notifications still fire.",
+)
 def watch(
     path: str,
     interval: str,
@@ -261,9 +265,10 @@ def watch(
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
+    quiet: bool,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
-    setup_logging(verbose)
+    setup_logging(verbose, quiet)
 
     try:
         seconds = _parse_interval(interval)
@@ -283,27 +288,34 @@ def watch(
     try:
         while True:
             scan_count += 1
-            console.clear()
-            console.print(
-                f"👀 tfdrift watch — every {interval} — "
-                f"scan #{scan_count} at {datetime.now().strftime('%H:%M:%S')} "
-                f"(Ctrl+C to stop)",
-                style="bold",
-            )
+            if not quiet:
+                console.clear()
+                console.print(
+                    f"👀 tfdrift watch — every {interval} — "
+                    f"scan #{scan_count} at {datetime.now().strftime('%H:%M:%S')} "
+                    f"(Ctrl+C to stop)",
+                    style="bold",
+                )
 
-            with console.status("[bold]Scanning for drift...", spinner="dots"):
+            if quiet:
                 report = run_scan(config, base_dir=path)
+            else:
+                with console.status("[bold]Scanning for drift...", spinner="dots"):
+                    report = run_scan(config, base_dir=path)
 
-            report_table(report, console, min_severity=min_severity)
+            if not quiet:
+                report_table(report, console, min_severity=min_severity)
 
             if report.has_drift:
                 _send_notifications(report, config, None)
 
-            console.print(f"\nNext scan in {interval}...", style="dim")
+            if not quiet:
+                console.print(f"\nNext scan in {interval}...", style="dim")
             time.sleep(seconds)
 
     except KeyboardInterrupt:
-        console.print("\n👋 Watch mode stopped.", style="bold")
+        if not quiet:
+            console.print("\n👋 Watch mode stopped.", style="bold")
 
 
 @main.command()
