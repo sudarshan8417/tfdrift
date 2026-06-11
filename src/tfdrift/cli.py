@@ -13,7 +13,7 @@ from rich.console import Console
 
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
-from tfdrift.models import ScanReport, WorkspaceScanResult
+from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
     notify_pagerduty,
@@ -123,6 +123,12 @@ def main():
     help="Only report drift at or above this severity level",
 )
 @click.option(
+    "--fail-on",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Only exit 1 when drift meets or exceeds this severity (default: any drift)",
+)
+@click.option(
     "--resource", "resource_filter", default=None,
     help="Filter output to resources matching this pattern (e.g. 'aws_s3*')",
 )
@@ -144,6 +150,7 @@ def scan(
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
+    fail_on: str | None,
     resource_filter: str | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
@@ -221,6 +228,14 @@ def scan(
 
     # Exit codes
     if report.has_drift:
+        if fail_on:
+            fail_sev = Severity(fail_on)
+            qualifies = any(
+                resource.severity >= fail_sev
+                for result in report.results
+                for resource in result.drifted_resources
+            )
+            sys.exit(1 if qualifies else 0)
         sys.exit(1)
     elif report.errors:
         sys.exit(2)
