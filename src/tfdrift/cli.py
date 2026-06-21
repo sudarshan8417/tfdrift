@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import sys
 import time
@@ -12,7 +13,7 @@ from rich.console import Console
 
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
-from tfdrift.models import ScanReport
+from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
     notify_pagerduty,
@@ -121,6 +122,20 @@ def main():
     default=None,
     help="Only report drift at or above this severity level",
 )
+@click.option(
+    "--fail-on",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Only exit 1 when drift meets or exceeds this severity (default: any drift)",
+)
+@click.option(
+    "--resource", "resource_filter", default=None,
+    help="Filter output to resources matching this pattern (e.g. 'aws_s3*')",
+)
+@click.option(
+    "--workers", "-w", default=None, type=int,
+    help="Number of parallel workers for scanning workspaces (default: 4)",
+)
 def scan(
     path: str,
     output_format: str,
@@ -139,6 +154,9 @@ def scan(
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
+    fail_on: str | None,
+    resource_filter: str | None,
+    workers: int | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -159,6 +177,8 @@ def scan(
         config.exit_on_error = True
     if binary:
         config.terraform_binary = binary
+    if workers is not None:
+        config.workers = workers
 
     # Run scan
     if quiet:
@@ -166,6 +186,27 @@ def scan(
     else:
         with console.status("[bold]Scanning for drift...", spinner="dots"):
             report = run_scan(config, base_dir=path)
+
+    # Resource filter
+    if resource_filter:
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path=r.workspace_path,
+                    drifted_resources=[
+                        res for res in r.drifted_resources
+                        if fnmatch.fnmatch(res.full_address, resource_filter)
+                    ],
+                    error=r.error,
+                    scan_duration_seconds=r.scan_duration_seconds,
+                    terraform_version=r.terraform_version,
+                )
+                for r in report.results
+            ],
+            scan_started_at=report.scan_started_at,
+            scan_finished_at=report.scan_finished_at,
+            config_path=report.config_path,
+        )
 
     # Output
     if output_format == "json":
@@ -194,6 +235,14 @@ def scan(
 
     # Exit codes
     if report.has_drift:
+        if fail_on:
+            fail_sev = Severity(fail_on)
+            qualifies = any(
+                resource.severity >= fail_sev
+                for result in report.results
+                for resource in result.drifted_resources
+            )
+            sys.exit(1 if qualifies else 0)
         sys.exit(1)
     elif report.errors:
         sys.exit(2)
@@ -226,6 +275,20 @@ def scan(
     default=None,
     help="Only show drift at or above this severity level",
 )
+@click.option(
+    "--quiet", "-q", is_flag=True, default=False,
+    help="Suppress all output except errors. Notifications still fire.",
+)
+@click.option(
+    "--workers", "-w", default=None, type=int,
+    help="Number of parallel workers for scanning workspaces (default: 4)",
+)
+@click.option(
+    "--fail-on",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Exit 1 and stop watching when drift meets or exceeds this severity",
+)
 def watch(
     path: str,
     interval: str,
@@ -234,9 +297,12 @@ def watch(
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
+    quiet: bool,
+    workers: int | None,
+    fail_on: str | None,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
-    setup_logging(verbose)
+    setup_logging(verbose, quiet)
 
     try:
         seconds = _parse_interval(interval)
@@ -251,32 +317,56 @@ def watch(
         config.notifications.slack_webhook_url = slack_webhook
     if binary:
         config.terraform_binary = binary
+    if workers is not None:
+        config.workers = workers
 
     scan_count = 0
     try:
         while True:
             scan_count += 1
-            console.clear()
-            console.print(
-                f"👀 tfdrift watch — every {interval} — "
-                f"scan #{scan_count} at {datetime.now().strftime('%H:%M:%S')} "
-                f"(Ctrl+C to stop)",
-                style="bold",
-            )
+            if not quiet:
+                console.clear()
+                console.print(
+                    f"👀 tfdrift watch — every {interval} — "
+                    f"scan #{scan_count} at {datetime.now().strftime('%H:%M:%S')} "
+                    f"(Ctrl+C to stop)",
+                    style="bold",
+                )
 
-            with console.status("[bold]Scanning for drift...", spinner="dots"):
+            if quiet:
                 report = run_scan(config, base_dir=path)
+            else:
+                with console.status("[bold]Scanning for drift...", spinner="dots"):
+                    report = run_scan(config, base_dir=path)
 
-            report_table(report, console, min_severity=min_severity)
+            if not quiet:
+                report_table(report, console, min_severity=min_severity)
 
             if report.has_drift:
                 _send_notifications(report, config, None)
 
-            console.print(f"\nNext scan in {interval}...", style="dim")
+                if fail_on:
+                    fail_sev = Severity(fail_on)
+                    qualifies = any(
+                        resource.severity >= fail_sev
+                        for result in report.results
+                        for resource in result.drifted_resources
+                    )
+                    if qualifies:
+                        if not quiet:
+                            console.print(
+                                f"\n[bold red]Drift at or above '{fail_on}' detected "
+                                f"— stopping watch.[/bold red]"
+                            )
+                        sys.exit(1)
+
+            if not quiet:
+                console.print(f"\nNext scan in {interval}...", style="dim")
             time.sleep(seconds)
 
     except KeyboardInterrupt:
-        console.print("\n👋 Watch mode stopped.", style="bold")
+        if not quiet:
+            console.print("\n👋 Watch mode stopped.", style="bold")
 
 
 @main.command()
