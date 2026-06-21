@@ -283,6 +283,12 @@ def scan(
     "--workers", "-w", default=None, type=int,
     help="Number of parallel workers for scanning workspaces (default: 4)",
 )
+@click.option(
+    "--fail-on",
+    type=click.Choice(["info", "low", "medium", "high", "critical"]),
+    default=None,
+    help="Exit 1 and stop watching when drift meets or exceeds this severity",
+)
 def watch(
     path: str,
     interval: str,
@@ -293,6 +299,7 @@ def watch(
     min_severity: str | None,
     quiet: bool,
     workers: int | None,
+    fail_on: str | None,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
     setup_logging(verbose, quiet)
@@ -337,6 +344,21 @@ def watch(
 
             if report.has_drift:
                 _send_notifications(report, config, None)
+
+                if fail_on:
+                    fail_sev = Severity(fail_on)
+                    qualifies = any(
+                        resource.severity >= fail_sev
+                        for result in report.results
+                        for resource in result.drifted_resources
+                    )
+                    if qualifies:
+                        if not quiet:
+                            console.print(
+                                f"\n[bold red]Drift at or above '{fail_on}' detected "
+                                f"— stopping watch.[/bold red]"
+                            )
+                        sys.exit(1)
 
             if not quiet:
                 console.print(f"\nNext scan in {interval}...", style="dim")
