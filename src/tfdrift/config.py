@@ -73,6 +73,7 @@ class TfdriftConfig:
     auto_detect_var_files: bool = True
     max_depth: int | None = None
     exit_on_error: bool = False
+    workers: int = 4
 
     def should_ignore(self, resource_address: str, attribute: str | None = None) -> bool:
         """Check if drift on a resource/attribute should be ignored."""
@@ -202,4 +203,5 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         auto_detect_var_files=scan_config.get("auto_detect_var_files", True),
         max_depth=scan_config.get("max_depth"),
         exit_on_error=scan_config.get("exit_on_error", False),
+        workers=scan_config.get("workers", 4),
     )

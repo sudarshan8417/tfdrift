@@ -15,6 +15,7 @@ import json
 import logging
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from tfdrift.config import TfdriftConfig
@@ -371,24 +372,56 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
             config.scan_paths,
         )
 
-    # Scan each workspace
-    for workspace in workspaces:
-        result = scan_workspace(workspace, config, classifier)
-        report.results.append(result)
+    # Scan workspaces — sequentially if workers=1, in parallel otherwise
+    workers = max(1, config.workers)
 
-        if result.has_drift:
-            logger.warning(
-                "Drift detected in %s: %d resource(s) drifted",
-                workspace,
-                result.drift_count,
-            )
-        elif result.error:
-            logger.error("Error scanning %s: %s", workspace, result.error)
-            if config.exit_on_error:
+    if workers == 1:
+        for workspace in workspaces:
+            result = scan_workspace(workspace, config, classifier)
+            report.results.append(result)
+            _log_workspace_result(result, workspace)
+            if result.error and config.exit_on_error:
                 logger.error("Stopping scan (--exit-on-error)")
                 break
-        else:
-            logger.info("No drift in %s", workspace)
+    else:
+        logger.info("Scanning with %d parallel workers", workers)
+        completed: dict[Path, WorkspaceScanResult] = {}
+        stop_early = False
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_ws = {
+                executor.submit(scan_workspace, ws, config, classifier): ws
+                for ws in workspaces
+            }
+            for future in as_completed(future_to_ws):
+                if stop_early:
+                    future.cancel()
+                    continue
+                ws = future_to_ws[future]
+                result = future.result()
+                completed[ws] = result
+                _log_workspace_result(result, ws)
+                if result.error and config.exit_on_error:
+                    logger.error("Stopping scan (--exit-on-error)")
+                    stop_early = True
+
+        # Preserve original discovery order in the report
+        for ws in workspaces:
+            if ws in completed:
+                report.results.append(completed[ws])
 
     report.finish()
     return report
+
+
+def _log_workspace_result(result: WorkspaceScanResult, workspace: Path) -> None:
+    if result.has_drift:
+        logger.warning(
+            "Drift detected in %s: %d resource(s) drifted",
+            workspace,
+            result.drift_count,
+        )
+    elif result.error:
+        logger.error("Error scanning %s: %s", workspace, result.error)
+    else:
+        logger.info("No drift in %s", workspace)
