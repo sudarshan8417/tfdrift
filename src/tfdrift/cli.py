@@ -132,6 +132,10 @@ def main():
     "--resource", "resource_filter", default=None,
     help="Filter output to resources matching this pattern (e.g. 'aws_s3*')",
 )
+@click.option(
+    "--workers", "-w", default=None, type=int,
+    help="Number of parallel workers for scanning workspaces (default: 4)",
+)
 def scan(
     path: str,
     output_format: str,
@@ -152,6 +156,7 @@ def scan(
     min_severity: str | None,
     fail_on: str | None,
     resource_filter: str | None,
+    workers: int | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -172,6 +177,8 @@ def scan(
         config.exit_on_error = True
     if binary:
         config.terraform_binary = binary
+    if workers is not None:
+        config.workers = workers
 
     # Run scan
     if quiet:
@@ -272,6 +279,10 @@ def scan(
     "--quiet", "-q", is_flag=True, default=False,
     help="Suppress all output except errors. Notifications still fire.",
 )
+@click.option(
+    "--workers", "-w", default=None, type=int,
+    help="Number of parallel workers for scanning workspaces (default: 4)",
+)
 def watch(
     path: str,
     interval: str,
@@ -281,6 +292,7 @@ def watch(
     verbose: bool,
     min_severity: str | None,
     quiet: bool,
+    workers: int | None,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
     setup_logging(verbose, quiet)
@@ -298,6 +310,8 @@ def watch(
         config.notifications.slack_webhook_url = slack_webhook
     if binary:
         config.terraform_binary = binary
+    if workers is not None:
+        config.workers = workers
 
     scan_count = 0
     try:
