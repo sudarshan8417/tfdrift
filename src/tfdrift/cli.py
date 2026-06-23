@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import logging
+import os
 import sys
 import time
 from datetime import datetime
@@ -15,7 +16,7 @@ from rich.console import Console
 
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
-from tfdrift.history import DEFAULT_DB_PATH, list_scans, get_scan_resources, save_scan
+from tfdrift.history import DEFAULT_DB_PATH, list_scans, save_scan
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
@@ -239,8 +240,7 @@ def scan(
     _send_notifications(report, config, slack_webhook)
 
     # GitHub Actions annotations + step summary
-    import os as _os
-    if github_actions or _os.environ.get("GITHUB_ACTIONS") == "true":
+    if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
         report_github_actions(report, min_severity=min_severity)
 
     # Auto-remediation
