@@ -26,6 +26,7 @@ from tfdrift.models import (
     ScanReport,
     WorkspaceScanResult,
 )
+from tfdrift.pricing import estimate_cost_delta
 from tfdrift.severity import SeverityClassifier
 
 logger = logging.getLogger(__name__)
@@ -286,8 +287,9 @@ def parse_plan_changes(
             module=module,
         )
 
-        # Classify severity
+        # Classify severity and estimate cost impact
         resource.severity = classifier.classify(resource)
+        resource.cost_delta_monthly = estimate_cost_delta(resource)
 
         drifted.append(resource)
 
