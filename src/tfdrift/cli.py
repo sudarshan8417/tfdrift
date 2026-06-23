@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import fnmatch
+import json
 import logging
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import click
 from rich.console import Console
 
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
+from tfdrift.history import DEFAULT_DB_PATH, list_scans, get_scan_resources, save_scan
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
@@ -233,6 +236,9 @@ def scan(
     if auto_fix and report.has_drift:
         _handle_remediation(report, config, env, confirm, dry_run, quiet)
 
+    # Save to history (silent — never break the scan over a history write failure)
+    _save_history(report, config)
+
     # Exit codes
     if report.has_drift:
         if fail_on:
@@ -341,6 +347,8 @@ def watch(
 
             if not quiet:
                 report_table(report, console, min_severity=min_severity)
+
+            _save_history(report, config)
 
             if report.has_drift:
                 _send_notifications(report, config, None)
@@ -589,6 +597,90 @@ def _parse_interval(interval: str) -> int:
         return int(interval[:-1]) * 3600
     else:
         return int(interval)
+
+
+def _save_history(report: ScanReport, config: TfdriftConfig) -> None:
+    """Persist scan to history DB, silently ignoring any errors."""
+    try:
+        db_path = Path(config.history_db) if config.history_db else DEFAULT_DB_PATH
+        save_scan(report, db_path)
+    except Exception:
+        pass
+
+
+@main.command()
+@click.option(
+    "--limit", "-n", default=10, type=int,
+    help="Number of recent scans to show (default: 10)",
+)
+@click.option(
+    "--format", "-f", "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+@click.option(
+    "--db", default=None,
+    help="Path to history database (default: ~/.tfdrift/history.db)",
+)
+def history(limit: int, output_format: str, db: str | None) -> None:
+    """Show past drift scan history."""
+    from rich.table import Table
+
+    db_path = Path(db) if db else DEFAULT_DB_PATH
+    scans = list_scans(db_path, limit=limit)
+
+    if not scans:
+        console.print("No scan history found.", style="dim")
+        return
+
+    if output_format == "json":
+        console.print(json.dumps(scans, indent=2, default=str))
+        return
+
+    table = Table(
+        title=f"Drift History — last {len(scans)} scan(s)",
+        show_lines=False,
+        header_style="bold",
+    )
+    table.add_column("When")
+    table.add_column("Base Dir", style="dim")
+    table.add_column("Workspaces", justify="right")
+    table.add_column("Drifted", justify="right")
+    table.add_column("Severities")
+    table.add_column("Errors", justify="right")
+    table.add_column("Duration", justify="right", style="dim")
+
+    for scan in scans:
+        drifted = scan["drift_count"]
+        drift_cell = f"[bold red]{drifted}[/bold red]" if drifted else "[green]0[/green]"
+
+        sev_counts = scan["severity_counts"]
+        sev_parts = []
+        for sev, color in [
+            ("critical", "bold red"),
+            ("high", "red"),
+            ("medium", "yellow"),
+            ("low", "blue"),
+        ]:
+            if sev_counts.get(sev):
+                sev_parts.append(f"[{color}]{sev_counts[sev]} {sev}[/{color}]")
+        sev_cell = ", ".join(sev_parts) if sev_parts else "—"
+
+        when = scan["scanned_at"][:16].replace("T", " ")
+        errors = str(scan["error_count"]) if scan["error_count"] else "—"
+
+        table.add_row(
+            when,
+            scan["base_dir"],
+            str(scan["workspace_count"]),
+            drift_cell,
+            sev_cell,
+            errors,
+            f"{scan['duration_seconds']:.1f}s",
+        )
+
+    console.print(table)
 
 
 if __name__ == "__main__":
