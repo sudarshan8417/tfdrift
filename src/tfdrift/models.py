@@ -86,6 +86,7 @@ class DriftedResource:
     severity: Severity = Severity.MEDIUM
     changes: list[AttributeChange] = field(default_factory=list)
     module: str | None = None
+    cost_delta_monthly: float | None = None
 
     @property
     def full_address(self) -> str:
@@ -100,6 +101,7 @@ class DriftedResource:
             "resource_name": self.resource_name,
             "action": self.action.value,
             "severity": self.severity.value,
+            "cost_delta_monthly": self.cost_delta_monthly,
             "changes": [c.to_dict() for c in self.changes],
         }
 

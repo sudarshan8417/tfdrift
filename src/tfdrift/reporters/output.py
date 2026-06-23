@@ -32,6 +32,7 @@ from tfdrift.models import (
     Severity,
     WorkspaceScanResult,
 )
+from tfdrift.pricing import format_cost_delta
 
 logger = logging.getLogger(__name__)
 
@@ -146,11 +147,15 @@ def report_table(
             style="bold",
         )
 
+        has_costs = any(r.cost_delta_monthly is not None for r in visible)
+
         table = Table(show_header=True, header_style="bold", padding=(0, 1))
         table.add_column("Severity", width=10)
         table.add_column("Resource", min_width=30)
         table.add_column("Action", width=10)
         table.add_column("Changes", min_width=40)
+        if has_costs:
+            table.add_column("Cost Impact", width=12, justify="right")
 
         for resource in visible:
             sev_style = SEVERITY_COLORS.get(resource.severity, "")
@@ -158,15 +163,39 @@ def report_table(
 
             changed_attrs = "\n".join(_format_change(c) for c in resource.changes) or "—"
 
-            table.add_row(
+            row: list[Any] = [
                 sev_text,
                 resource.full_address,
                 resource.action.value,
                 changed_attrs,
-            )
+            ]
+            if has_costs:
+                delta = resource.cost_delta_monthly
+                cost_str = format_cost_delta(delta)
+                if delta is not None:
+                    cost_style = "bold red" if delta > 0 else "bold green"
+                    row.append(Text(cost_str, style=cost_style))
+                else:
+                    row.append(Text(cost_str, style="dim"))
+            table.add_row(*row)
 
         console.print(table)
         console.print()
+
+    # Total cost impact across all drifted resources
+    all_deltas = [
+        r.cost_delta_monthly
+        for result in report.results
+        for r in result.drifted_resources
+        if r.cost_delta_monthly is not None
+    ]
+    if all_deltas:
+        total = sum(all_deltas)
+        style = "bold red" if total > 0 else "bold green"
+        console.print(
+            f"💰 Estimated cost impact: [{style}]{format_cost_delta(total)}[/{style}]"
+            f"  [dim](on-demand us-east-1 — approximate)[/dim]\n"
+        )
 
     # Errors summary
     if report.errors:
