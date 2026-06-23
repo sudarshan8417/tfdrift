@@ -23,6 +23,7 @@ from tfdrift.reporters.output import (
     notify_slack,
     notify_webhook,
     report_csv,
+    report_github_actions,
     report_html,
     report_json,
     report_markdown,
@@ -139,6 +140,10 @@ def main():
     "--workers", "-w", default=None, type=int,
     help="Number of parallel workers for scanning workspaces (default: 4)",
 )
+@click.option(
+    "--gha", "github_actions", is_flag=True, default=False,
+    help="Force GitHub Actions output (auto-detected when $GITHUB_ACTIONS=true)",
+)
 def scan(
     path: str,
     output_format: str,
@@ -160,6 +165,7 @@ def scan(
     fail_on: str | None,
     resource_filter: str | None,
     workers: int | None,
+    github_actions: bool,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -231,6 +237,11 @@ def scan(
 
     # Notifications
     _send_notifications(report, config, slack_webhook)
+
+    # GitHub Actions annotations + step summary
+    import os as _os
+    if github_actions or _os.environ.get("GITHUB_ACTIONS") == "true":
+        report_github_actions(report, min_severity=min_severity)
 
     # Auto-remediation
     if auto_fix and report.has_drift:

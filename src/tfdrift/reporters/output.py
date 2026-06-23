@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -648,3 +649,104 @@ def report_html(
     Path(output_path).write_text(html)
     logger.info("HTML report written to %s", output_path)
     return output_path
+
+
+# Severity → GitHub Actions workflow command level
+_GHA_LEVEL = {
+    Severity.CRITICAL: "error",
+    Severity.HIGH: "error",
+    Severity.MEDIUM: "warning",
+    Severity.LOW: "notice",
+    Severity.INFO: "notice",
+}
+
+
+def report_github_actions(
+    report: ScanReport,
+    min_severity: str | None = None,
+) -> None:
+    """Emit GitHub Actions workflow commands and write the step summary.
+
+    - Prints ::error:: / ::warning:: / ::notice:: annotations to stdout so
+      they appear inline in the Actions log and as PR check annotations.
+    - Writes a Markdown drift table to $GITHUB_STEP_SUMMARY so the job
+      summary page shows a human-readable overview.
+    """
+    min_sev = Severity(min_severity) if min_severity else Severity.INFO
+
+    # Emit annotations for every qualifying drifted resource
+    for result in report.results:
+        for resource in result.drifted_resources:
+            if resource.severity < min_sev:
+                continue
+            level = _GHA_LEVEL[resource.severity]
+            changed = ", ".join(c.attribute for c in resource.changes[:5])
+            if len(resource.changes) > 5:
+                changed += f" (+{len(resource.changes) - 5} more)"
+            title = f"Drift: {resource.full_address} [{resource.severity.value}]"
+            msg = (
+                f"{resource.action.value} — workspace: {result.workspace_path}"
+                + (f" — changed: {changed}" if changed else "")
+            )
+            print(f"::{level} title={title}::{msg}")
+
+    # Write step summary
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    lines: list[str] = []
+
+    if report.has_drift:
+        lines.append(
+            f"## ⚠️ Terraform Drift Detected\n\n"
+            f"**{report.total_drift_count} resource(s) drifted** across "
+            f"**{report.workspaces_with_drift}/{report.total_workspaces} workspace(s)**\n"
+        )
+
+        sev_counts = report.severity_counts()
+        badges = []
+        for sev, emoji in [
+            ("critical", "🔴"), ("high", "🟠"), ("medium", "🟡"), ("low", "🔵")
+        ]:
+            if sev_counts.get(sev):
+                badges.append(f"{emoji} {sev_counts[sev]} {sev}")
+        if badges:
+            lines.append(" &nbsp; ".join(badges) + "\n")
+
+        lines.append(
+            "| Severity | Resource | Type | Action | Changed Attributes |\n"
+            "|---|---|---|---|---|\n"
+        )
+        for result in report.results:
+            for resource in result.drifted_resources:
+                if resource.severity < min_sev:
+                    continue
+                emoji = SEVERITY_EMOJI.get(resource.severity, "")
+                changed = ", ".join(f"`{c.attribute}`" for c in resource.changes[:5])
+                if len(resource.changes) > 5:
+                    changed += f" +{len(resource.changes) - 5} more"
+                lines.append(
+                    f"| {emoji} {resource.severity.value} "
+                    f"| `{resource.full_address}` "
+                    f"| {resource.resource_type} "
+                    f"| {resource.action.value} "
+                    f"| {changed or '—'} |\n"
+                )
+    else:
+        lines.append(
+            f"## ✅ No Terraform Drift\n\n"
+            f"All **{report.total_workspaces} workspace(s)** are in sync.\n"
+        )
+
+    lines.append(
+        f"\n> Scanned in {report.total_duration_seconds:.1f}s · "
+        f"[tfdrift](https://github.com/sudarshan8417/tfdrift)\n"
+    )
+
+    try:
+        with open(summary_path, "a") as f:
+            f.writelines(lines)
+        logger.info("GitHub Actions step summary written to %s", summary_path)
+    except OSError as e:
+        logger.warning("Could not write step summary: %s", e)
