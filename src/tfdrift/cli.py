@@ -14,9 +14,16 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from tfdrift.blame import lookup_blame
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
-from tfdrift.history import DEFAULT_DB_PATH, list_scans, save_scan
+from tfdrift.history import (
+    DEFAULT_DB_PATH,
+    get_daily_summary,
+    get_repeat_offenders,
+    list_scans,
+    save_scan,
+)
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
@@ -145,6 +152,18 @@ def main():
     "--gha", "github_actions", is_flag=True, default=False,
     help="Force GitHub Actions output (auto-detected when $GITHUB_ACTIONS=true)",
 )
+@click.option(
+    "--blame", "run_blame", is_flag=True, default=False,
+    help="Look up who changed each drifted resource in CloudTrail (requires tfdrift[aws])",
+)
+@click.option(
+    "--blame-days", default=7, type=int,
+    help="Lookback window for --blame in days (default: 7)",
+)
+@click.option(
+    "--blame-region", default=None,
+    help="AWS region for --blame CloudTrail queries",
+)
 def scan(
     path: str,
     output_format: str,
@@ -167,6 +186,9 @@ def scan(
     resource_filter: str | None,
     workers: int | None,
     github_actions: bool,
+    run_blame: bool,
+    blame_days: int,
+    blame_region: str | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -242,6 +264,10 @@ def scan(
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
         report_github_actions(report, min_severity=min_severity)
+
+    # Inline CloudTrail blame
+    if run_blame and report.has_drift:
+        _run_inline_blame(report, blame_days, blame_region, quiet)
 
     # Auto-remediation
     if auto_fix and report.has_drift:
@@ -472,13 +498,20 @@ scan:
   # exit_on_error: false
 
 severity:
+  # Patterns use fnmatch glob syntax by default.
+  # Prefix a pattern with "regex:" to use a full regular expression instead.
+  # Examples:
+  #   fnmatch:  aws_security_group.*.ingress
+  #   regex:    regex:aws_.*_policy\\..*\\.policy
   critical:
     # - aws_security_group.*.ingress
     # - azurerm_network_security_group.*.security_rule
     # - google_compute_firewall.*.allow
+    # - "regex:aws_iam_(role|user)_policy\\..*\\.policy"
   high:
     # - aws_instance.*.instance_type
     # - azurerm_virtual_machine.*.vm_size
+    # - "regex:aws_(db|rds)_instance\\..*\\.instance_class"
 
 notifications:
   slack:
@@ -634,63 +667,259 @@ def _save_history(report: ScanReport, config: TfdriftConfig) -> None:
     "--db", default=None,
     help="Path to history database (default: ~/.tfdrift/history.db)",
 )
-def history(limit: int, output_format: str, db: str | None) -> None:
+@click.option(
+    "--since", default=None,
+    help="Only show scans from this lookback period (e.g. 7d, 24h, 2026-01-01)",
+)
+@click.option(
+    "--top", "show_top", is_flag=True, default=False,
+    help="Show repeat offenders — resources that drift most frequently",
+)
+@click.option(
+    "--trend", "show_trend", is_flag=True, default=False,
+    help="Show per-day drift frequency trend",
+)
+def history(
+    limit: int,
+    output_format: str,
+    db: str | None,
+    since: str | None,
+    show_top: bool,
+    show_trend: bool,
+) -> None:
     """Show past drift scan history."""
     from rich.table import Table
 
     db_path = Path(db) if db else DEFAULT_DB_PATH
-    scans = list_scans(db_path, limit=limit)
+    try:
+        scans = list_scans(db_path, limit=limit, since=since)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--since")
 
-    if not scans:
+    if not scans and not show_top and not show_trend:
         console.print("No scan history found.", style="dim")
         return
 
     if output_format == "json":
-        console.print(json.dumps(scans, indent=2, default=str))
+        out: dict = {"scans": scans}
+        if show_top:
+            out["repeat_offenders"] = get_repeat_offenders(db_path, limit=limit, since=since)
+        if show_trend:
+            out["daily_trend"] = get_daily_summary(db_path, since=since)
+        console.print(json.dumps(out, indent=2, default=str))
         return
 
-    table = Table(
-        title=f"Drift History — last {len(scans)} scan(s)",
-        show_lines=False,
-        header_style="bold",
-    )
-    table.add_column("When")
-    table.add_column("Base Dir", style="dim")
-    table.add_column("Workspaces", justify="right")
-    table.add_column("Drifted", justify="right")
-    table.add_column("Severities")
-    table.add_column("Errors", justify="right")
-    table.add_column("Duration", justify="right", style="dim")
+    # Scans table
+    if scans:
+        title = f"Drift History — {len(scans)} scan(s)"
+        if since:
+            title += f" since {since}"
+        table = Table(title=title, show_lines=False, header_style="bold")
+        table.add_column("When")
+        table.add_column("Base Dir", style="dim")
+        table.add_column("Workspaces", justify="right")
+        table.add_column("Drifted", justify="right")
+        table.add_column("Severities")
+        table.add_column("Errors", justify="right")
+        table.add_column("Duration", justify="right", style="dim")
 
-    for scan in scans:
-        drifted = scan["drift_count"]
-        drift_cell = f"[bold red]{drifted}[/bold red]" if drifted else "[green]0[/green]"
+        for scan in scans:
+            drifted = scan["drift_count"]
+            drift_cell = f"[bold red]{drifted}[/bold red]" if drifted else "[green]0[/green]"
+            sev_counts = scan["severity_counts"]
+            sev_parts = []
+            for sev, color in [
+                ("critical", "bold red"), ("high", "red"),
+                ("medium", "yellow"), ("low", "blue"),
+            ]:
+                if sev_counts.get(sev):
+                    sev_parts.append(f"[{color}]{sev_counts[sev]} {sev}[/{color}]")
+            sev_cell = ", ".join(sev_parts) if sev_parts else "—"
+            when = scan["scanned_at"][:16].replace("T", " ")
+            errors = str(scan["error_count"]) if scan["error_count"] else "—"
+            table.add_row(
+                when, scan["base_dir"], str(scan["workspace_count"]),
+                drift_cell, sev_cell, errors, f"{scan['duration_seconds']:.1f}s",
+            )
+        console.print(table)
 
-        sev_counts = scan["severity_counts"]
-        sev_parts = []
-        for sev, color in [
-            ("critical", "bold red"),
-            ("high", "red"),
-            ("medium", "yellow"),
-            ("low", "blue"),
-        ]:
-            if sev_counts.get(sev):
-                sev_parts.append(f"[{color}]{sev_counts[sev]} {sev}[/{color}]")
-        sev_cell = ", ".join(sev_parts) if sev_parts else "—"
+    # Repeat offenders table
+    if show_top:
+        offenders = get_repeat_offenders(db_path, limit=limit, since=since)
+        if offenders:
+            console.print()
+            top_table = Table(
+                title="Repeat Offenders — most frequently drifted resources",
+                header_style="bold",
+            )
+            top_table.add_column("Resource", min_width=35)
+            top_table.add_column("Type")
+            top_table.add_column("Severity")
+            top_table.add_column("Drift Count", justify="right")
+            top_table.add_column("Last Seen")
+            for r in offenders:
+                top_table.add_row(
+                    r["resource_address"],
+                    r["resource_type"],
+                    r["severity"],
+                    f"[bold red]{r['drift_count']}[/bold red]",
+                    r["last_seen"][:16].replace("T", " "),
+                )
+            console.print(top_table)
+        else:
+            console.print("No repeat offenders found.", style="dim")
 
-        when = scan["scanned_at"][:16].replace("T", " ")
-        errors = str(scan["error_count"]) if scan["error_count"] else "—"
+    # Daily trend table
+    if show_trend:
+        daily = get_daily_summary(db_path, since=since)
+        if daily:
+            console.print()
+            trend_table = Table(title="Daily Drift Trend", header_style="bold")
+            trend_table.add_column("Date")
+            trend_table.add_column("Scans", justify="right")
+            trend_table.add_column("Scans w/ Drift", justify="right")
+            trend_table.add_column("Total Resources Drifted", justify="right")
+            for row in daily:
+                drifted_scans = row["scans_with_drift"]
+                trend_table.add_row(
+                    row["day"],
+                    str(row["scan_count"]),
+                    f"[bold red]{drifted_scans}[/bold red]" if drifted_scans else "0",
+                    str(row["total_drift"] or 0),
+                )
+            console.print(trend_table)
+        else:
+            console.print("No trend data found.", style="dim")
 
-        table.add_row(
-            when,
-            scan["base_dir"],
-            str(scan["workspace_count"]),
-            drift_cell,
-            sev_cell,
-            errors,
-            f"{scan['duration_seconds']:.1f}s",
+
+def _run_inline_blame(
+    report: ScanReport,
+    days: int,
+    region: str | None,
+    quiet: bool,
+) -> None:
+    """Run CloudTrail blame for every drifted resource and print inline results."""
+    from rich.table import Table
+
+    if not quiet:
+        console.print("\n🔍 CloudTrail blame lookup...", style="bold")
+
+    table = Table(header_style="bold", show_lines=False)
+    table.add_column("Resource", min_width=35)
+    table.add_column("Event")
+    table.add_column("Actor", style="yellow")
+    table.add_column("Time")
+    table.add_column("Source IP")
+
+    found_any = False
+    for result in report.results:
+        for resource in result.drifted_resources:
+            blame_result = lookup_blame(
+                resource_address=resource.full_address,
+                resource_type=resource.resource_type,
+                region=region,
+                lookback_days=days,
+            )
+            if blame_result:
+                found_any = True
+                table.add_row(
+                    resource.full_address,
+                    blame_result.event_name,
+                    blame_result.actor,
+                    blame_result.event_time[:16].replace("T", " "),
+                    blame_result.source_ip,
+                )
+            else:
+                table.add_row(
+                    resource.full_address, "—", "—", "—", "—"
+                )
+
+    if found_any and not quiet:
+        console.print(table)
+    elif not quiet:
+        console.print(
+            "[dim]No CloudTrail events found. "
+            "Try --blame-days 30 or verify CloudTrail is enabled.[/dim]"
         )
 
+
+@main.command()
+@click.argument("resource_address")
+@click.option(
+    "--type", "-t", "resource_type", required=True,
+    help="Terraform resource type (e.g. aws_instance)",
+)
+@click.option(
+    "--region", "-r", default=None,
+    help="AWS region to query (defaults to AWS_DEFAULT_REGION or boto3 config)",
+)
+@click.option(
+    "--days", "-d", default=7, type=int,
+    help="How many days back to search CloudTrail (default: 7, max: 90)",
+)
+@click.option(
+    "--profile", default=None,
+    help="AWS profile name (uses default credential chain if not set)",
+)
+@click.option(
+    "--format", "-f", "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+def blame(
+    resource_address: str,
+    resource_type: str,
+    region: str | None,
+    days: int,
+    profile: str | None,
+    output_format: str,
+) -> None:
+    """Look up who last changed a resource in AWS CloudTrail.
+
+    RESOURCE_ADDRESS is the Terraform full address, e.g. aws_instance.web
+    or module.vpc.aws_security_group.main.
+
+    Requires boto3: pip install tfdrift[aws]
+    """
+    from rich.table import Table
+
+    console.print(
+        f"🔍 Querying CloudTrail for [bold]{resource_address}[/bold] "
+        f"(last {days} day(s))...",
+    )
+
+    result = lookup_blame(
+        resource_address=resource_address,
+        resource_type=resource_type,
+        region=region,
+        lookback_days=days,
+        profile=profile,
+    )
+
+    if result is None:
+        console.print(
+            "\n[dim]No CloudTrail events found for this resource in the given time window.\n"
+            "Try --days 30 or check that CloudTrail is enabled in this region.[/dim]"
+        )
+        sys.exit(1)
+
+    if output_format == "json":
+        console.print(json.dumps(result.to_dict(), indent=2))
+        return
+
+    table = Table(title=f"CloudTrail Blame — {resource_address}", header_style="bold")
+    table.add_column("Field", style="dim", width=20)
+    table.add_column("Value")
+
+    table.add_row("Event", result.event_name)
+    table.add_row("Time", result.event_time[:19].replace("T", " "))
+    table.add_row("Actor", f"[bold yellow]{result.actor}[/bold yellow]")
+    table.add_row("Source IP", result.source_ip)
+    table.add_row("Region", result.region)
+    table.add_row("Event ID", result.event_id)
+
+    console.print()
     console.print(table)
 
 
