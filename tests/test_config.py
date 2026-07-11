@@ -94,3 +94,22 @@ aws_ecs_service.*.desired_count
         assert config.should_ignore("aws_autoscaling_group.web", "desired_capacity")
         assert not config.should_ignore("aws_autoscaling_group.web", "max_size")
         assert not config.should_ignore("aws_instance.web", "desired_capacity")
+
+    def test_fail_on_default_is_none(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_config(base_dir=tmpdir)
+            assert config.fail_on is None
+
+    def test_fail_on_loaded_from_yaml(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text("scan:\n  fail_on: high\n")
+            config = load_config(base_dir=tmpdir)
+            assert config.fail_on == "high"
+
+    def test_fail_on_critical_loaded_from_yaml(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text("scan:\n  fail_on: critical\n")
+            config = load_config(base_dir=tmpdir)
+            assert config.fail_on == "critical"
