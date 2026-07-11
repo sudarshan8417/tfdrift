@@ -11,9 +11,14 @@ Ships with ~60 built-in rules for AWS, Azure, and GCP.
 from __future__ import annotations
 
 import fnmatch
+import re
 from dataclasses import dataclass, field
 
 from tfdrift.models import DriftedResource, Severity
+
+# Patterns prefixed with "regex:" are treated as regular expressions.
+# All other patterns use fnmatch glob syntax (the original behaviour).
+_REGEX_PREFIX = "regex:"
 
 # Default severity rules — security-critical resources and attributes
 DEFAULT_CRITICAL_PATTERNS = [
@@ -87,6 +92,21 @@ DEFAULT_LOW_PATTERNS = [
 ]
 
 
+def _pattern_matches(pattern: str, target: str) -> bool:
+    """Return True if target matches pattern.
+
+    Patterns starting with 'regex:' are treated as regular expressions
+    anchored to the full string. All other patterns use fnmatch.
+    """
+    if pattern.startswith(_REGEX_PREFIX):
+        expr = pattern[len(_REGEX_PREFIX):]
+        try:
+            return bool(re.fullmatch(expr, target))
+        except re.error:
+            return False
+    return fnmatch.fnmatch(target, pattern)
+
+
 @dataclass
 class SeverityClassifier:
     """Classifies drift severity based on resource type and changed attributes."""
@@ -136,20 +156,22 @@ class SeverityClassifier:
             return Severity.HIGH
         return Severity.MEDIUM
 
-    # TODO: consider adding support for regex patterns alongside fnmatch.
-    # fnmatch works well for simple cases but gets ugly for complex matching.
     def _match_pattern(self, target: str) -> Severity:
-        """Match a resource.attribute pattern against severity rules."""
+        """Match a resource.attribute pattern against severity rules.
+
+        Patterns prefixed with 'regex:' are compiled as regular expressions.
+        All other patterns use fnmatch glob syntax.
+        """
         for pattern in self.critical_patterns:
-            if fnmatch.fnmatch(target, pattern):
+            if _pattern_matches(pattern, target):
                 return Severity.CRITICAL
 
         for pattern in self.high_patterns:
-            if fnmatch.fnmatch(target, pattern):
+            if _pattern_matches(pattern, target):
                 return Severity.HIGH
 
         for pattern in self.low_patterns:
-            if fnmatch.fnmatch(target, pattern):
+            if _pattern_matches(pattern, target):
                 return Severity.LOW
 
         return Severity.MEDIUM
