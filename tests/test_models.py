@@ -120,6 +120,58 @@ class TestSeverity:
         )
         assert classifier.classify(resource) == Severity.CRITICAL
 
+    def test_regex_pattern_critical(self):
+        config = {
+            "severity": {
+                "critical": ["regex:aws_iam_(role|user)_policy\\..*\\.policy"],
+            }
+        }
+        classifier = SeverityClassifier.from_config(config)
+        for resource_type in ("aws_iam_role_policy", "aws_iam_user_policy"):
+            resource = DriftedResource(
+                address=f"{resource_type}.admin",
+                resource_type=resource_type,
+                resource_name="admin",
+                action=ChangeAction.UPDATE,
+                changes=[AttributeChange(attribute="policy", old_value="{}", new_value="{...}")],
+            )
+            assert classifier.classify(resource) == Severity.CRITICAL
+
+    def test_regex_pattern_does_not_match_different_type(self):
+        config = {
+            "severity": {
+                "critical": ["regex:aws_iam_role_policy\\..*\\.policy"],
+            }
+        }
+        classifier = SeverityClassifier.from_config(config)
+        resource = DriftedResource(
+            address="aws_iam_group_policy.ops",
+            resource_type="aws_iam_group_policy",
+            resource_name="ops",
+            action=ChangeAction.UPDATE,
+            changes=[AttributeChange(attribute="policy", old_value="{}", new_value="{...}")],
+        )
+        # group_policy should not match role_policy regex → falls to MEDIUM
+        assert classifier.classify(resource) == Severity.MEDIUM
+
+    def test_invalid_regex_pattern_does_not_crash(self):
+        config = {
+            "severity": {
+                "critical": ["regex:[invalid(regex"],
+            }
+        }
+        classifier = SeverityClassifier.from_config(config)
+        resource = DriftedResource(
+            address="aws_instance.web",
+            resource_type="aws_instance",
+            resource_name="web",
+            action=ChangeAction.UPDATE,
+            changes=[AttributeChange(attribute="instance_type", old_value="t3.micro",
+                                     new_value="m5.large")],
+        )
+        # Invalid regex should not crash — falls back to built-in HIGH for instance_type
+        assert classifier.classify(resource) == Severity.HIGH
+
 
 class TestModels:
     def test_drifted_resource_full_address_without_module(self):
