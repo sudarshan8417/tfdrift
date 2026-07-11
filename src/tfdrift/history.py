@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from tfdrift.models import ScanReport
@@ -85,18 +87,57 @@ def save_scan(report: ScanReport, db_path: Path = DEFAULT_DB_PATH) -> str:
     return scan_id
 
 
-def list_scans(db_path: Path = DEFAULT_DB_PATH, limit: int = 10) -> list[dict]:
-    """Return the most recent scans, newest first."""
+def parse_since(since: str) -> datetime:
+    """Parse a human-friendly lookback string into a UTC datetime.
+
+    Accepts: 1h, 6h, 24h, 7d, 30d, or an ISO-8601 date (2026-01-01).
+    """
+    since = since.strip().lower()
+    m = re.fullmatch(r"(\d+)(h|d)", since)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        delta = timedelta(hours=n) if unit == "h" else timedelta(days=n)
+        return datetime.now(timezone.utc) - delta
+    # Try ISO date
+    try:
+        return datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise ValueError(
+            f"Invalid --since value '{since}'. Use formats like 7d, 24h, or 2026-01-01."
+        )
+
+
+def list_scans(
+    db_path: Path = DEFAULT_DB_PATH,
+    limit: int = 10,
+    since: str | None = None,
+) -> list[dict]:
+    """Return the most recent scans, newest first.
+
+    Args:
+        limit: Maximum number of scans to return.
+        since: Optional lookback string (e.g. '7d', '24h', '2026-01-01').
+    """
     if not db_path.exists():
         return []
     with _connect(db_path) as conn:
         _init_db(conn)
-        rows = conn.execute(
-            """SELECT id, scanned_at, base_dir, workspace_count, drift_count,
-                      error_count, duration_seconds, severity_counts
-               FROM scans ORDER BY scanned_at DESC LIMIT ?""",
-            (limit,),
-        ).fetchall()
+        if since:
+            cutoff = parse_since(since).isoformat()
+            rows = conn.execute(
+                """SELECT id, scanned_at, base_dir, workspace_count, drift_count,
+                          error_count, duration_seconds, severity_counts
+                   FROM scans WHERE scanned_at >= ?
+                   ORDER BY scanned_at DESC LIMIT ?""",
+                (cutoff, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, scanned_at, base_dir, workspace_count, drift_count,
+                          error_count, duration_seconds, severity_counts
+                   FROM scans ORDER BY scanned_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
     results = []
     for row in rows:
         d = dict(row)
