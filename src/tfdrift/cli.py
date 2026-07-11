@@ -276,10 +276,11 @@ def scan(
     # Save to history (silent — never break the scan over a history write failure)
     _save_history(report, config)
 
-    # Exit codes
+    # Exit codes — CLI flag takes precedence over config file
+    effective_fail_on = fail_on or config.fail_on
     if report.has_drift:
-        if fail_on:
-            fail_sev = Severity(fail_on)
+        if effective_fail_on:
+            fail_sev = Severity(effective_fail_on)
             qualifies = any(
                 resource.severity >= fail_sev
                 for result in report.results
