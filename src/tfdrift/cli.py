@@ -258,12 +258,19 @@ def scan(
         if output_path and output_format != "table":
             console.print(f"📄 Report written to {output_path}")
 
+    # Resolve fail-on threshold: CLI flag > config file
+    effective_fail_on = fail_on or config.fail_on
+
     # Notifications
     _send_notifications(report, config, slack_webhook)
 
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
-        report_github_actions(report, min_severity=min_severity)
+        report_github_actions(
+            report,
+            min_severity=min_severity,
+            fail_on_severity=effective_fail_on,
+        )
 
     # Inline CloudTrail blame
     if run_blame and report.has_drift:
@@ -276,8 +283,7 @@ def scan(
     # Save to history (silent — never break the scan over a history write failure)
     _save_history(report, config)
 
-    # Exit codes — CLI flag takes precedence over config file
-    effective_fail_on = fail_on or config.fail_on
+    # Exit codes
     if report.has_drift:
         if effective_fail_on:
             fail_sev = Severity(effective_fail_on)
