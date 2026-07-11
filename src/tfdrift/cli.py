@@ -152,6 +152,18 @@ def main():
     "--gha", "github_actions", is_flag=True, default=False,
     help="Force GitHub Actions output (auto-detected when $GITHUB_ACTIONS=true)",
 )
+@click.option(
+    "--blame", "run_blame", is_flag=True, default=False,
+    help="Look up who changed each drifted resource in CloudTrail (requires tfdrift[aws])",
+)
+@click.option(
+    "--blame-days", default=7, type=int,
+    help="Lookback window for --blame in days (default: 7)",
+)
+@click.option(
+    "--blame-region", default=None,
+    help="AWS region for --blame CloudTrail queries",
+)
 def scan(
     path: str,
     output_format: str,
@@ -174,6 +186,9 @@ def scan(
     resource_filter: str | None,
     workers: int | None,
     github_actions: bool,
+    run_blame: bool,
+    blame_days: int,
+    blame_region: str | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -249,6 +264,10 @@ def scan(
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
         report_github_actions(report, min_severity=min_severity)
+
+    # Inline CloudTrail blame
+    if run_blame and report.has_drift:
+        _run_inline_blame(report, blame_days, blame_region, quiet)
 
     # Auto-remediation
     if auto_fix and report.has_drift:
@@ -771,6 +790,57 @@ def history(
             console.print(trend_table)
         else:
             console.print("No trend data found.", style="dim")
+
+
+def _run_inline_blame(
+    report: ScanReport,
+    days: int,
+    region: str | None,
+    quiet: bool,
+) -> None:
+    """Run CloudTrail blame for every drifted resource and print inline results."""
+    from rich.table import Table
+
+    if not quiet:
+        console.print("\n🔍 CloudTrail blame lookup...", style="bold")
+
+    table = Table(header_style="bold", show_lines=False)
+    table.add_column("Resource", min_width=35)
+    table.add_column("Event")
+    table.add_column("Actor", style="yellow")
+    table.add_column("Time")
+    table.add_column("Source IP")
+
+    found_any = False
+    for result in report.results:
+        for resource in result.drifted_resources:
+            blame_result = lookup_blame(
+                resource_address=resource.full_address,
+                resource_type=resource.resource_type,
+                region=region,
+                lookback_days=days,
+            )
+            if blame_result:
+                found_any = True
+                table.add_row(
+                    resource.full_address,
+                    blame_result.event_name,
+                    blame_result.actor,
+                    blame_result.event_time[:16].replace("T", " "),
+                    blame_result.source_ip,
+                )
+            else:
+                table.add_row(
+                    resource.full_address, "—", "—", "—", "—"
+                )
+
+    if found_any and not quiet:
+        console.print(table)
+    elif not quiet:
+        console.print(
+            "[dim]No CloudTrail events found. "
+            "Try --blame-days 30 or verify CloudTrail is enabled.[/dim]"
+        )
 
 
 @main.command()
