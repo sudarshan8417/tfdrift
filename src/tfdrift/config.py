@@ -75,6 +75,7 @@ class TfdriftConfig:
     exit_on_error: bool = False
     workers: int = 4
     history_db: str | None = None
+    fail_on: str | None = None
 
     def should_ignore(self, resource_address: str, attribute: str | None = None) -> bool:
         """Check if drift on a resource/attribute should be ignored."""
@@ -206,4 +207,5 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         exit_on_error=scan_config.get("exit_on_error", False),
         workers=scan_config.get("workers", 4),
         history_db=raw_config.get("history_db"),
+        fail_on=scan_config.get("fail_on"),
     )
