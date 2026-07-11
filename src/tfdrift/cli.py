@@ -478,13 +478,20 @@ scan:
   # exit_on_error: false
 
 severity:
+  # Patterns use fnmatch glob syntax by default.
+  # Prefix a pattern with "regex:" to use a full regular expression instead.
+  # Examples:
+  #   fnmatch:  aws_security_group.*.ingress
+  #   regex:    regex:aws_.*_policy\\..*\\.policy
   critical:
     # - aws_security_group.*.ingress
     # - azurerm_network_security_group.*.security_rule
     # - google_compute_firewall.*.allow
+    # - "regex:aws_iam_(role|user)_policy\\..*\\.policy"
   high:
     # - aws_instance.*.instance_type
     # - azurerm_virtual_machine.*.vm_size
+    # - "regex:aws_(db|rds)_instance\\..*\\.instance_class"
 
 notifications:
   slack:
