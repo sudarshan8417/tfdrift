@@ -146,6 +146,74 @@ def list_scans(
     return results
 
 
+def get_repeat_offenders(
+    db_path: Path = DEFAULT_DB_PATH,
+    limit: int = 10,
+    since: str | None = None,
+) -> list[dict]:
+    """Return resources that have drifted most frequently, ranked by drift count."""
+    if not db_path.exists():
+        return []
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        if since:
+            cutoff = parse_since(since).isoformat()
+            rows = conn.execute(
+                """SELECT dr.resource_address, dr.resource_type, dr.severity,
+                          COUNT(*) as drift_count,
+                          MAX(s.scanned_at) as last_seen
+                   FROM drifted_resources dr
+                   JOIN scans s ON s.id = dr.scan_id
+                   WHERE s.scanned_at >= ?
+                   GROUP BY dr.resource_address, dr.resource_type, dr.severity
+                   ORDER BY drift_count DESC
+                   LIMIT ?""",
+                (cutoff, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT dr.resource_address, dr.resource_type, dr.severity,
+                          COUNT(*) as drift_count,
+                          MAX(s.scanned_at) as last_seen
+                   FROM drifted_resources dr
+                   JOIN scans s ON s.id = dr.scan_id
+                   GROUP BY dr.resource_address, dr.resource_type, dr.severity
+                   ORDER BY drift_count DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_daily_summary(
+    db_path: Path = DEFAULT_DB_PATH,
+    since: str | None = None,
+) -> list[dict]:
+    """Return per-day drift counts for trend visualization."""
+    if not db_path.exists():
+        return []
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        base_query = """
+            SELECT substr(scanned_at, 1, 10) as day,
+                   COUNT(*) as scan_count,
+                   SUM(drift_count) as total_drift,
+                   SUM(CASE WHEN drift_count > 0 THEN 1 ELSE 0 END) as scans_with_drift
+            FROM scans
+            {where}
+            GROUP BY day
+            ORDER BY day DESC
+        """
+        if since:
+            cutoff = parse_since(since).isoformat()
+            rows = conn.execute(
+                base_query.format(where="WHERE scanned_at >= ?"), (cutoff,)
+            ).fetchall()
+        else:
+            rows = conn.execute(base_query.format(where="")).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_scan_resources(scan_id: str, db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
     """Return all drifted resources for a specific scan."""
     if not db_path.exists():
