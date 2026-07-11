@@ -520,6 +520,7 @@ scan:
   #   environment: dev
   # max_depth: 3
   # exit_on_error: false
+  # fail_on: high   # exit 1 only when drift at or above this severity
 
 severity:
   # Patterns use fnmatch glob syntax by default.
