@@ -88,15 +88,14 @@ _RESOURCE_TYPE_MAP: dict[str, str] = {
 }
 
 
-def _get_actor(event: dict) -> str:
+def _get_actor(event: dict) -> str:  # type: ignore[type-arg]
     """Extract a human-readable actor from a CloudTrail event."""
-    identity = event.get("userIdentity", {})
+    identity: dict[str, str] = event.get("userIdentity", {})
     id_type = identity.get("type", "")
     if id_type == "IAMUser":
         return identity.get("userName", "unknown-iam-user")
     if id_type == "AssumedRole":
         arn = identity.get("arn", "")
-        # arn:aws:sts::123:assumed-role/RoleName/SessionName
         parts = arn.split("/")
         if len(parts) >= 3:
             return f"{parts[-2]}/{parts[-1]}"
