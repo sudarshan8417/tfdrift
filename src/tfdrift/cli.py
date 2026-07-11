@@ -281,12 +281,29 @@ def scan(
     if report.has_drift:
         if effective_fail_on:
             fail_sev = Severity(effective_fail_on)
-            qualifies = any(
-                resource.severity >= fail_sev
+            breaching = [
+                resource
                 for result in report.results
                 for resource in result.drifted_resources
-            )
-            sys.exit(1 if qualifies else 0)
+                if resource.severity >= fail_sev
+            ]
+            if breaching:
+                if not quiet:
+                    console.print(
+                        f"\n[bold red]✗ Fail threshold reached:[/bold red] "
+                        f"{len(breaching)} drift(s) at or above "
+                        f"[bold]'{effective_fail_on}'[/bold] severity.",
+                        highlight=False,
+                    )
+                sys.exit(1)
+            else:
+                if not quiet:
+                    console.print(
+                        f"\n[dim]Drift detected, but none at or above "
+                        f"'{effective_fail_on}' — exit 0.[/dim]",
+                        highlight=False,
+                    )
+                sys.exit(0)
         sys.exit(1)
     elif report.errors:
         sys.exit(2)
