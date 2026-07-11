@@ -14,6 +14,7 @@ from pathlib import Path
 import click
 from rich.console import Console
 
+from tfdrift.blame import lookup_blame
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
 from tfdrift.history import (
@@ -770,6 +771,86 @@ def history(
             console.print(trend_table)
         else:
             console.print("No trend data found.", style="dim")
+
+
+@main.command()
+@click.argument("resource_address")
+@click.option(
+    "--type", "-t", "resource_type", required=True,
+    help="Terraform resource type (e.g. aws_instance)",
+)
+@click.option(
+    "--region", "-r", default=None,
+    help="AWS region to query (defaults to AWS_DEFAULT_REGION or boto3 config)",
+)
+@click.option(
+    "--days", "-d", default=7, type=int,
+    help="How many days back to search CloudTrail (default: 7, max: 90)",
+)
+@click.option(
+    "--profile", default=None,
+    help="AWS profile name (uses default credential chain if not set)",
+)
+@click.option(
+    "--format", "-f", "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+def blame(
+    resource_address: str,
+    resource_type: str,
+    region: str | None,
+    days: int,
+    profile: str | None,
+    output_format: str,
+) -> None:
+    """Look up who last changed a resource in AWS CloudTrail.
+
+    RESOURCE_ADDRESS is the Terraform full address, e.g. aws_instance.web
+    or module.vpc.aws_security_group.main.
+
+    Requires boto3: pip install tfdrift[aws]
+    """
+    from rich.table import Table
+
+    console.print(
+        f"🔍 Querying CloudTrail for [bold]{resource_address}[/bold] "
+        f"(last {days} day(s))...",
+    )
+
+    result = lookup_blame(
+        resource_address=resource_address,
+        resource_type=resource_type,
+        region=region,
+        lookback_days=days,
+        profile=profile,
+    )
+
+    if result is None:
+        console.print(
+            "\n[dim]No CloudTrail events found for this resource in the given time window.\n"
+            "Try --days 30 or check that CloudTrail is enabled in this region.[/dim]"
+        )
+        sys.exit(1)
+
+    if output_format == "json":
+        console.print(json.dumps(result.to_dict(), indent=2))
+        return
+
+    table = Table(title=f"CloudTrail Blame — {resource_address}", header_style="bold")
+    table.add_column("Field", style="dim", width=20)
+    table.add_column("Value")
+
+    table.add_row("Event", result.event_name)
+    table.add_row("Time", result.event_time[:19].replace("T", " "))
+    table.add_row("Actor", f"[bold yellow]{result.actor}[/bold yellow]")
+    table.add_row("Source IP", result.source_ip)
+    table.add_row("Region", result.region)
+    table.add_row("Event ID", result.event_id)
+
+    console.print()
+    console.print(table)
 
 
 if __name__ == "__main__":
