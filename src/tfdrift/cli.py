@@ -16,7 +16,13 @@ from rich.console import Console
 
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
-from tfdrift.history import DEFAULT_DB_PATH, list_scans, save_scan
+from tfdrift.history import (
+    DEFAULT_DB_PATH,
+    get_daily_summary,  # noqa: F401 — used in history command (commit 4)
+    get_repeat_offenders,  # noqa: F401 — used in history command (commit 4)
+    list_scans,
+    save_scan,
+)
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
@@ -634,12 +640,19 @@ def _save_history(report: ScanReport, config: TfdriftConfig) -> None:
     "--db", default=None,
     help="Path to history database (default: ~/.tfdrift/history.db)",
 )
-def history(limit: int, output_format: str, db: str | None) -> None:
+@click.option(
+    "--since", default=None,
+    help="Only show scans from this lookback period (e.g. 7d, 24h, 2026-01-01)",
+)
+def history(limit: int, output_format: str, db: str | None, since: str | None) -> None:
     """Show past drift scan history."""
     from rich.table import Table
 
     db_path = Path(db) if db else DEFAULT_DB_PATH
-    scans = list_scans(db_path, limit=limit)
+    try:
+        scans = list_scans(db_path, limit=limit, since=since)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--since")
 
     if not scans:
         console.print("No scan history found.", style="dim")
