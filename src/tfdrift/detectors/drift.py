@@ -351,16 +351,37 @@ def scan_workspace(
     )
 
 
+def _apply_suppressions(
+    result: WorkspaceScanResult,
+    suppressions: list[dict],
+) -> WorkspaceScanResult:
+    """Remove suppressed resources from a workspace result, recording the count."""
+    patterns = [s["resource_pattern"] for s in suppressions]
+    kept = []
+    suppressed = 0
+    for resource in result.drifted_resources:
+        if any(fnmatch.fnmatch(resource.full_address, p) for p in patterns):
+            suppressed += 1
+            logger.info("Suppressing drift on %s (matched suppression rule)", resource.full_address)
+        else:
+            kept.append(resource)
+    result.drifted_resources = kept
+    result.suppressed_count = suppressed
+    return result
+
+
 def run_scan(
     config: TfdriftConfig,
     base_dir: str = ".",
     workspace_cache: WorkspaceCache | None = None,
+    suppressions: list[dict] | None = None,
 ) -> ScanReport:
     """Run a full drift scan across all workspaces.
 
     This is the main entry point for the drift detection engine.
     Pass a WorkspaceCache to enable incremental mode: clean, unchanged
     workspaces are skipped and represented as cached results in the report.
+    Pass suppressions (from get_active_suppressions) to silence known-good drift.
     """
     report = ScanReport(config_path=base_dir)
     classifier = SeverityClassifier.from_config({"severity": config.severity_config})
@@ -405,6 +426,8 @@ def run_scan(
     if workers == 1:
         for workspace in to_scan:
             result = scan_workspace(workspace, config, classifier)
+            if suppressions:
+                result = _apply_suppressions(result, suppressions)
             if workspace_cache:
                 workspace_cache.record_scan(workspace, result.has_drift, bool(result.error))
             report.results.append(result)
@@ -428,6 +451,8 @@ def run_scan(
                     continue
                 ws = future_to_ws[future]
                 result = future.result()
+                if suppressions:
+                    result = _apply_suppressions(result, suppressions)
                 if workspace_cache:
                     workspace_cache.record_scan(ws, result.has_drift, bool(result.error))
                 completed[ws] = result
