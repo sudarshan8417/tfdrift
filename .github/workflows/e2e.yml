@@ -1,0 +1,274 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: End-to-end CLI tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install tfdrift
+        run: pip install -e .
+
+      # -----------------------------------------------------------------------
+      # Fixtures
+      # -----------------------------------------------------------------------
+
+      - name: Create test workspace
+        run: |
+          mkdir -p /tmp/e2e/workspace
+          cat > /tmp/e2e/workspace/main.tf << 'EOF'
+          resource "aws_instance" "web" {
+            instance_type = "t2.micro"
+          }
+          resource "aws_security_group" "api" {
+            name = "api"
+          }
+          EOF
+
+      - name: Create drift plan JSON
+        run: |
+          cat > /tmp/e2e/drift_plan.json << 'EOF'
+          {
+            "resource_changes": [
+              {
+                "address": "aws_instance.web",
+                "mode": "managed",
+                "type": "aws_instance",
+                "name": "web",
+                "change": {
+                  "actions": ["update"],
+                  "before": { "instance_type": "t2.micro" },
+                  "after":  { "instance_type": "t2.large" },
+                  "after_sensitive": {}
+                }
+              },
+              {
+                "address": "aws_security_group.api",
+                "mode": "managed",
+                "type": "aws_security_group",
+                "name": "api",
+                "change": {
+                  "actions": ["update"],
+                  "before": { "ingress": [] },
+                  "after":  { "ingress": [{"from_port": 22}] },
+                  "after_sensitive": {}
+                }
+              }
+            ]
+          }
+          EOF
+
+      - name: Create mock terraform binary (returns drift)
+        run: |
+          mkdir -p /tmp/e2e/bin
+          cat > /tmp/e2e/bin/terraform << 'SCRIPT'
+          #!/bin/bash
+          case "$1" in
+            init)    exit 0 ;;
+            version) echo '{"terraform_version":"1.9.0"}'; exit 0 ;;
+            plan)    touch tfdrift.tfplan; exit 2 ;;  # exit 2 = changes detected
+            show)    cat /tmp/e2e/drift_plan.json; exit 0 ;;
+          esac
+          SCRIPT
+          chmod +x /tmp/e2e/bin/terraform
+
+      - name: Create mock terraform binary (clean — no drift)
+        run: |
+          cat > /tmp/e2e/bin/terraform-clean << 'SCRIPT'
+          #!/bin/bash
+          case "$1" in
+            init)    exit 0 ;;
+            version) echo '{"terraform_version":"1.9.0"}'; exit 0 ;;
+            plan)    touch tfdrift.tfplan; exit 0 ;;  # exit 0 = no changes
+            show)    echo '{"resource_changes":[]}'; exit 0 ;;
+          esac
+          SCRIPT
+          chmod +x /tmp/e2e/bin/terraform-clean
+
+      # -----------------------------------------------------------------------
+      # E2E Test 1 — basic drift detection → exit 1
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 1] Drift detected → exit 1"
+        id: e2e_drift
+        run: |
+          tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --format json
+        continue-on-error: true
+
+      - name: "[E2E 1] Verify exit code was 1"
+        run: |
+          [ "${{ steps.e2e_drift.outcome }}" = "failure" ] \
+            && echo "PASS: exit 1 as expected" \
+            || (echo "FAIL: expected exit 1, got success" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # E2E Test 2 — --fail-on high with only medium/high drift
+      # instance_type is HIGH, security_group ingress is CRITICAL
+      # so --fail-on critical should exit 1, --fail-on high should also exit 1
+      # using --fail-on info to prove pass with any drift present
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 2] --fail-on critical → triggers on security_group ingress"
+        id: e2e_failon_critical
+        run: |
+          tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --fail-on critical \
+            --quiet
+        continue-on-error: true
+
+      - name: "[E2E 2] Verify --fail-on critical exit 1"
+        run: |
+          [ "${{ steps.e2e_failon_critical.outcome }}" = "failure" ] \
+            && echo "PASS" || (echo "FAIL" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # E2E Test 3 — suppress aws_instance.web, drift count drops
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 3] Suppress aws_instance.web for 2h"
+        run: |
+          tfdrift suppress aws_instance.web --duration 2h --reason "e2e test suppression"
+          tfdrift suppress --list
+
+      - name: "[E2E 3] Scan with suppression — aws_instance.web hidden"
+        run: |
+          OUTPUT=$(tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --format json 2>/dev/null || true)
+          echo "$OUTPUT"
+          DRIFT=$(echo "$OUTPUT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          total = data['summary']['total_drift_count']
+          print(total)
+          ")
+          echo "Drift count after suppression: $DRIFT"
+          [ "$DRIFT" -eq 1 ] \
+            && echo "PASS: aws_instance.web suppressed, only 1 resource drifted" \
+            || (echo "FAIL: expected 1 drift, got $DRIFT" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # E2E Test 4 — clear suppression, drift count returns to 2
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 4] Clear suppression"
+        run: |
+          tfdrift suppress --clear aws_instance.web
+          tfdrift suppress --list
+
+      - name: "[E2E 4] Scan after clearing — both resources drifted"
+        run: |
+          OUTPUT=$(tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --format json 2>/dev/null || true)
+          DRIFT=$(echo "$OUTPUT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          print(data['summary']['total_drift_count'])
+          ")
+          [ "$DRIFT" -eq 2 ] \
+            && echo "PASS: both resources drifted again" \
+            || (echo "FAIL: expected 2, got $DRIFT" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # E2E Test 5 — incremental scanning skips clean unchanged workspaces
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 5] First clean scan seeds the cache"
+        run: |
+          tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform-clean \
+            --incremental \
+            --format json
+
+      - name: "[E2E 5] Second incremental scan skips unchanged workspace"
+        run: |
+          OUTPUT=$(tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform-clean \
+            --incremental \
+            --format json 2>/dev/null)
+          echo "$OUTPUT"
+          SKIPPED=$(echo "$OUTPUT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          skipped = sum(1 for w in data['workspaces'] if w.get('skipped'))
+          print(skipped)
+          ")
+          [ "$SKIPPED" -eq 1 ] \
+            && echo "PASS: workspace skipped on second incremental scan" \
+            || (echo "FAIL: expected 1 skipped workspace, got $SKIPPED" && exit 1)
+
+      # -----------------------------------------------------------------------
+      # E2E Test 6 — history records scans
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 6] History contains completed scans"
+        run: |
+          tfdrift history --format json | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          count = len(data['scans'])
+          assert count >= 3, f'Expected at least 3 scans in history, got {count}'
+          print(f'PASS: {count} scan(s) in history')
+          "
+
+      # -----------------------------------------------------------------------
+      # E2E Test 7 — JSON output schema is valid
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 7] JSON output has expected schema"
+        run: |
+          tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --format json 2>/dev/null || true | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          assert 'summary' in data
+          assert 'workspaces' in data
+          assert 'total_drift_count' in data['summary']
+          assert 'severity_counts' in data['summary']
+          for ws in data['workspaces']:
+              assert 'workspace_path' in ws
+              assert 'drift_count' in ws
+              assert 'suppressed_count' in ws
+              assert 'skipped' in ws
+          print('PASS: JSON schema valid')
+          "
+
+      # -----------------------------------------------------------------------
+      # E2E Test 8 — Markdown output renders without error
+      # -----------------------------------------------------------------------
+
+      - name: "[E2E 8] Markdown output renders cleanly"
+        run: |
+          tfdrift scan \
+            --path /tmp/e2e/workspace \
+            --binary /tmp/e2e/bin/terraform \
+            --format markdown \
+            --output /tmp/e2e/report.md 2>/dev/null || true
+          [ -s /tmp/e2e/report.md ] \
+            && echo "PASS: markdown report written ($(wc -l < /tmp/e2e/report.md) lines)" \
+            || (echo "FAIL: markdown report is empty or missing" && exit 1)
