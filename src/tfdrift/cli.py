@@ -20,10 +20,15 @@ from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
 from tfdrift.history import (
     DEFAULT_DB_PATH,
+    clear_suppression,
+    get_active_suppressions,
     get_daily_summary,
     get_repeat_offenders,
     list_scans,
+    list_suppressions,
+    parse_duration,
     save_scan,
+    save_suppression,
 )
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
@@ -223,15 +228,29 @@ def scan(
     if incremental or config.incremental:
         workspace_cache = WorkspaceCache()
 
+    # Load active suppressions
+    db_path = Path(config.history_db) if config.history_db else DEFAULT_DB_PATH
+    suppressions = get_active_suppressions(db_path)
+
     # Run scan
     if quiet:
-        report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
+        report = run_scan(
+            config, base_dir=path, workspace_cache=workspace_cache, suppressions=suppressions
+        )
     else:
         with console.status("[bold]Scanning for drift...", spinner="dots"):
-            report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
+            report = run_scan(
+                config, base_dir=path, workspace_cache=workspace_cache, suppressions=suppressions
+            )
 
     if workspace_cache:
         workspace_cache.save()
+
+    if not quiet and report.total_suppressed_count:
+        console.print(
+            f"[dim]ℹ {report.total_suppressed_count} suppressed resource(s) hidden "
+            f"— run [bold]tfdrift suppress --list[/bold] to review.[/dim]"
+        )
 
     # Resource filter
     if resource_filter:
@@ -418,11 +437,21 @@ def watch(
                     style="bold",
                 )
 
+            # Reload suppressions each cycle so new ones take effect immediately
+            watch_db = Path(config.history_db) if config.history_db else DEFAULT_DB_PATH
+            watch_suppressions = get_active_suppressions(watch_db)
+
             if quiet:
-                report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
+                report = run_scan(
+                    config, base_dir=path,
+                    workspace_cache=watch_cache, suppressions=watch_suppressions,
+                )
             else:
                 with console.status("[bold]Scanning for drift...", spinner="dots"):
-                    report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
+                    report = run_scan(
+                        config, base_dir=path,
+                        workspace_cache=watch_cache, suppressions=watch_suppressions,
+                    )
 
             watch_cache.save()
 
@@ -966,6 +995,127 @@ def blame(
 
     console.print()
     console.print(table)
+
+
+@main.command()
+@click.argument("resource_pattern", required=False, default=None)
+@click.option(
+    "--duration", "-d", default="24h",
+    help="How long to suppress drift on this resource (e.g. 30m, 4h, 7d). Default: 24h",
+)
+@click.option(
+    "--reason", "-r", default=None,
+    help="Optional note explaining why this drift is suppressed",
+)
+@click.option(
+    "--list", "show_list", is_flag=True, default=False,
+    help="List all active suppressions",
+)
+@click.option(
+    "--clear", "clear_pattern", default=None,
+    help="Deactivate suppressions matching this resource pattern",
+)
+@click.option(
+    "--all", "include_expired", is_flag=True, default=False,
+    help="Include expired suppressions when listing (use with --list)",
+)
+@click.option(
+    "--db", default=None,
+    help="Path to history database (default: ~/.tfdrift/history.db)",
+)
+def suppress(
+    resource_pattern: str | None,
+    duration: str,
+    reason: str | None,
+    show_list: bool,
+    clear_pattern: str | None,
+    include_expired: bool,
+    db: str | None,
+) -> None:
+    """Suppress drift alerts on a resource for a set duration.
+
+    RESOURCE_PATTERN is an fnmatch glob — e.g. aws_instance.web or
+    "aws_autoscaling_group.*".  Suppressed resources are hidden from scan
+    output and do not affect exit codes until the suppression expires.
+
+    \b
+    Examples:
+      tfdrift suppress aws_instance.web --duration 4h --reason "maintenance"
+      tfdrift suppress "aws_autoscaling_group.*" --duration 1d
+      tfdrift suppress --list
+      tfdrift suppress --clear aws_instance.web
+    """
+    from rich.table import Table
+
+    db_path = Path(db) if db else DEFAULT_DB_PATH
+
+    # --clear
+    if clear_pattern:
+        removed = clear_suppression(clear_pattern, db_path)
+        if removed:
+            console.print(
+                f"[green]✓ Cleared {removed} suppression(s) for '{clear_pattern}'.[/green]"
+            )
+        else:
+            console.print(
+                f"[yellow]No active suppressions found for '{clear_pattern}'.[/yellow]"
+            )
+        return
+
+    # --list
+    if show_list:
+        rows = list_suppressions(db_path, include_expired=include_expired)
+        if not rows:
+            console.print("[dim]No active suppressions.[/dim]")
+            return
+        table = Table(
+            title="Active Suppressions" if not include_expired else "All Suppressions",
+            header_style="bold",
+        )
+        table.add_column("Pattern", min_width=30)
+        table.add_column("Reason")
+        table.add_column("Suppressed At")
+        table.add_column("Expires At")
+        if include_expired:
+            table.add_column("Active")
+        for row in rows:
+            expires = row["expires_at"][:16].replace("T", " ")
+            suppressed_at = row["suppressed_at"][:16].replace("T", " ")
+            cells: list[str] = [
+                row["resource_pattern"],
+                row["reason"] or "—",
+                suppressed_at,
+                expires,
+            ]
+            if include_expired:
+                cells.append("[green]yes[/green]" if row["active"] else "[dim]no[/dim]")
+            table.add_row(*cells)
+        console.print(table)
+        return
+
+    # Create new suppression
+    if not resource_pattern:
+        raise click.UsageError(
+            "Provide a RESOURCE_PATTERN to suppress, or use --list / --clear."
+        )
+
+    try:
+        parse_duration(duration)  # validate before writing to DB
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--duration")
+
+    save_suppression(resource_pattern, duration, reason, db_path)
+
+    console.print(
+        f"[green]✓ Suppressing drift on [bold]{resource_pattern}[/bold] "
+        f"for {duration}.[/green]"
+    )
+    if reason:
+        console.print(f"  Reason: {reason}", style="dim")
+    console.print(
+        "  Run [bold]tfdrift suppress --list[/bold] to see all active suppressions.",
+        style="dim",
+    )
 
 
 if __name__ == "__main__":
