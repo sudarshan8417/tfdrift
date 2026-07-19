@@ -62,7 +62,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
 
 
 @click.group()
-@click.version_option(version="0.3.0", prog_name="tfdrift")
+@click.version_option(version="0.4.0", prog_name="tfdrift")
 def main():
     """tfdrift — Continuous Terraform drift detection and remediation."""
     pass
