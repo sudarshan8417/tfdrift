@@ -115,6 +115,7 @@ class WorkspaceScanResult:
     error: str | None = None
     scan_duration_seconds: float = 0.0
     terraform_version: str | None = None
+    skipped: bool = False
 
     @property
     def has_drift(self) -> bool:
@@ -139,6 +140,7 @@ class WorkspaceScanResult:
             "error": self.error,
             "scan_duration_seconds": round(self.scan_duration_seconds, 2),
             "terraform_version": self.terraform_version,
+            "skipped": self.skipped,
             "drifted_resources": [r.to_dict() for r in self.drifted_resources],
         }
 

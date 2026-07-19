@@ -15,6 +15,7 @@ import click
 from rich.console import Console
 
 from tfdrift.blame import lookup_blame
+from tfdrift.cache import WorkspaceCache
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
 from tfdrift.history import (
@@ -56,7 +57,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
 
 
 @click.group()
-@click.version_option(version="0.2.6", prog_name="tfdrift")
+@click.version_option(version="0.3.0", prog_name="tfdrift")
 def main():
     """tfdrift — Continuous Terraform drift detection and remediation."""
     pass
@@ -164,6 +165,10 @@ def main():
     "--blame-region", default=None,
     help="AWS region for --blame CloudTrail queries",
 )
+@click.option(
+    "--incremental", is_flag=True, default=False,
+    help="Skip clean, unchanged workspaces using a local scan cache (~/.tfdrift/scan_cache.json)",
+)
 def scan(
     path: str,
     output_format: str,
@@ -189,6 +194,7 @@ def scan(
     run_blame: bool,
     blame_days: int,
     blame_region: str | None,
+    incremental: bool,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -212,12 +218,20 @@ def scan(
     if workers is not None:
         config.workers = workers
 
+    # Build workspace cache when incremental mode is requested
+    workspace_cache: WorkspaceCache | None = None
+    if incremental or config.incremental:
+        workspace_cache = WorkspaceCache()
+
     # Run scan
     if quiet:
-        report = run_scan(config, base_dir=path)
+        report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
     else:
         with console.status("[bold]Scanning for drift...", spinner="dots"):
-            report = run_scan(config, base_dir=path)
+            report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
+
+    if workspace_cache:
+        workspace_cache.save()
 
     # Resource filter
     if resource_filter:
@@ -258,12 +272,19 @@ def scan(
         if output_path and output_format != "table":
             console.print(f"📄 Report written to {output_path}")
 
+    # Resolve fail-on threshold: CLI flag > config file
+    effective_fail_on = fail_on or config.fail_on
+
     # Notifications
     _send_notifications(report, config, slack_webhook)
 
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
-        report_github_actions(report, min_severity=min_severity)
+        report_github_actions(
+            report,
+            min_severity=min_severity,
+            fail_on_severity=effective_fail_on,
+        )
 
     # Inline CloudTrail blame
     if run_blame and report.has_drift:
@@ -278,14 +299,31 @@ def scan(
 
     # Exit codes
     if report.has_drift:
-        if fail_on:
-            fail_sev = Severity(fail_on)
-            qualifies = any(
-                resource.severity >= fail_sev
+        if effective_fail_on:
+            fail_sev = Severity(effective_fail_on)
+            breaching = [
+                resource
                 for result in report.results
                 for resource in result.drifted_resources
-            )
-            sys.exit(1 if qualifies else 0)
+                if resource.severity >= fail_sev
+            ]
+            if breaching:
+                if not quiet:
+                    console.print(
+                        f"\n[bold red]✗ Fail threshold reached:[/bold red] "
+                        f"{len(breaching)} drift(s) at or above "
+                        f"[bold]'{effective_fail_on}'[/bold] severity.",
+                        highlight=False,
+                    )
+                sys.exit(1)
+            else:
+                if not quiet:
+                    console.print(
+                        f"\n[dim]Drift detected, but none at or above "
+                        f"'{effective_fail_on}' — exit 0.[/dim]",
+                        highlight=False,
+                    )
+                sys.exit(0)
         sys.exit(1)
     elif report.errors:
         sys.exit(2)
@@ -363,6 +401,10 @@ def watch(
     if workers is not None:
         config.workers = workers
 
+    # Watch mode always uses incremental scanning — skip unchanged clean workspaces
+    # between cycles to keep each cycle fast.
+    watch_cache = WorkspaceCache()
+
     scan_count = 0
     try:
         while True:
@@ -377,10 +419,12 @@ def watch(
                 )
 
             if quiet:
-                report = run_scan(config, base_dir=path)
+                report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
             else:
                 with console.status("[bold]Scanning for drift...", spinner="dots"):
-                    report = run_scan(config, base_dir=path)
+                    report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
+
+            watch_cache.save()
 
             if not quiet:
                 report_table(report, console, min_severity=min_severity)
@@ -496,6 +540,7 @@ scan:
   #   environment: dev
   # max_depth: 3
   # exit_on_error: false
+  # fail_on: high   # exit 1 only when drift at or above this severity
 
 severity:
   # Patterns use fnmatch glob syntax by default.

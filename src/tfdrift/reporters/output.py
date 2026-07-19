@@ -693,6 +693,7 @@ _GHA_LEVEL = {
 def report_github_actions(
     report: ScanReport,
     min_severity: str | None = None,
+    fail_on_severity: str | None = None,
 ) -> None:
     """Emit GitHub Actions workflow commands and write the step summary.
 
@@ -702,6 +703,21 @@ def report_github_actions(
       summary page shows a human-readable overview.
     """
     min_sev = Severity(min_severity) if min_severity else Severity.INFO
+
+    # Emit a top-level error annotation when the fail-on threshold is breached
+    if fail_on_severity and report.has_drift:
+        fail_sev = Severity(fail_on_severity)
+        breaching = sum(
+            1
+            for result in report.results
+            for resource in result.drifted_resources
+            if resource.severity >= fail_sev
+        )
+        if breaching:
+            print(
+                f"::error title=tfdrift fail-on-severity::"
+                f"{breaching} drift(s) at or above '{fail_on_severity}' severity detected."
+            )
 
     # Emit annotations for every qualifying drifted resource
     for result in report.results:

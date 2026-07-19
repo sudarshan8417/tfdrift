@@ -1,6 +1,7 @@
 """Tests for CLI behavior."""
 import csv
 import io
+from unittest.mock import patch
 
 from click.testing import CliRunner
 
@@ -13,7 +14,7 @@ from tfdrift.models import (
     Severity,
     WorkspaceScanResult,
 )
-from tfdrift.reporters.output import report_csv
+from tfdrift.reporters.output import report_csv, report_github_actions
 
 
 def test_version():
@@ -170,3 +171,125 @@ class TestReportCsv:
         attrs = rows[0]["changed_attributes"].split("|")
         assert "instance_type" in attrs
         assert "ami" in attrs
+
+
+def _make_high_and_medium_report() -> ScanReport:
+    """Report with one HIGH and one MEDIUM resource."""
+    return ScanReport(
+        results=[
+            WorkspaceScanResult(
+                workspace_path="/tmp/ws",
+                drifted_resources=[
+                    DriftedResource(
+                        address="aws_instance.web",
+                        resource_type="aws_instance",
+                        resource_name="web",
+                        action=ChangeAction.UPDATE,
+                        severity=Severity.HIGH,
+                        changes=[AttributeChange("instance_type", "t3.micro", "t3.large")],
+                    ),
+                    DriftedResource(
+                        address="aws_s3_bucket.data",
+                        resource_type="aws_s3_bucket",
+                        resource_name="data",
+                        action=ChangeAction.UPDATE,
+                        severity=Severity.MEDIUM,
+                        changes=[AttributeChange("acl", "private", "public-read")],
+                    ),
+                ],
+            )
+        ]
+    )
+
+
+class TestFailOnSeverityCLI:
+    """Exit-code and messaging behaviour for --fail-on."""
+
+    def _invoke_scan(self, report: ScanReport, extra_args: list):  # type: ignore[return]
+        runner = CliRunner()
+        with patch("tfdrift.cli.run_scan", return_value=report), \
+             patch("tfdrift.cli._save_history"):
+            return runner.invoke(main, ["scan", "--path", "/tmp"] + extra_args)
+
+    def test_exit_1_when_drift_above_threshold(self):
+        report = _make_high_and_medium_report()
+        result = self._invoke_scan(report, ["--fail-on", "high"])
+        assert result.exit_code == 1
+
+    def test_exit_0_when_drift_below_threshold(self):
+        report = _make_high_and_medium_report()
+        # Threshold is critical — drift is only HIGH/MEDIUM, so exit 0
+        result = self._invoke_scan(report, ["--fail-on", "critical"])
+        assert result.exit_code == 0
+
+    def test_exit_1_without_fail_on_flag(self):
+        report = _make_high_and_medium_report()
+        result = self._invoke_scan(report, [])
+        assert result.exit_code == 1
+
+    def test_prints_threshold_reached_message(self):
+        report = _make_high_and_medium_report()
+        result = self._invoke_scan(report, ["--fail-on", "high"])
+        assert "Fail threshold reached" in result.output
+
+    def test_prints_below_threshold_message(self):
+        report = _make_high_and_medium_report()
+        result = self._invoke_scan(report, ["--fail-on", "critical"])
+        assert "below" in result.output.lower() or "exit 0" in result.output
+
+    def test_exact_severity_at_boundary_triggers(self):
+        report = _make_high_and_medium_report()
+        # HIGH drift with --fail-on high → should trigger
+        result = self._invoke_scan(report, ["--fail-on", "high"])
+        assert result.exit_code == 1
+
+    def test_medium_drift_does_not_trigger_high_threshold(self):
+        # Report with only MEDIUM drift
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path="/tmp/ws",
+                    drifted_resources=[
+                        DriftedResource(
+                            address="aws_s3_bucket.data",
+                            resource_type="aws_s3_bucket",
+                            resource_name="data",
+                            action=ChangeAction.UPDATE,
+                            severity=Severity.MEDIUM,
+                            changes=[AttributeChange("acl", "private", "public")],
+                        )
+                    ],
+                )
+            ]
+        )
+        result = self._invoke_scan(report, ["--fail-on", "high"])
+        assert result.exit_code == 0
+
+    def test_no_drift_exits_0_regardless_of_fail_on(self):
+        report = ScanReport(results=[WorkspaceScanResult(workspace_path="/tmp/clean")])
+        result = self._invoke_scan(report, ["--fail-on", "low"])
+        assert result.exit_code == 0
+
+
+class TestFailOnSeverityGHA:
+    """GHA annotation emitted when fail-on threshold is breached."""
+
+    def test_emits_error_annotation_when_threshold_breached(self, capsys):
+        report = _make_high_and_medium_report()
+        report_github_actions(report, fail_on_severity="high")
+        out = capsys.readouterr().out
+        assert "::error" in out
+        assert "fail-on-severity" in out
+
+    def test_no_error_annotation_when_below_threshold(self, capsys):
+        report = _make_high_and_medium_report()
+        report_github_actions(report, fail_on_severity="critical")
+        out = capsys.readouterr().out
+        # Should not have the top-level fail-on error annotation
+        assert "fail-on-severity" not in out
+
+    def test_no_error_annotation_when_no_drift(self, capsys):
+        report = ScanReport(results=[WorkspaceScanResult(workspace_path="/tmp/clean")])
+        report_github_actions(report, fail_on_severity="low")
+        out = capsys.readouterr().out
+        assert "fail-on-severity" not in out

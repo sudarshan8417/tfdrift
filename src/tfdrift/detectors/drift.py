@@ -18,6 +18,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from tfdrift.cache import WorkspaceCache
 from tfdrift.config import TfdriftConfig
 from tfdrift.models import (
     AttributeChange,
@@ -350,10 +351,16 @@ def scan_workspace(
     )
 
 
-def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
+def run_scan(
+    config: TfdriftConfig,
+    base_dir: str = ".",
+    workspace_cache: WorkspaceCache | None = None,
+) -> ScanReport:
     """Run a full drift scan across all workspaces.
 
     This is the main entry point for the drift detection engine.
+    Pass a WorkspaceCache to enable incremental mode: clean, unchanged
+    workspaces are skipped and represented as cached results in the report.
     """
     report = ScanReport(config_path=base_dir)
     classifier = SeverityClassifier.from_config({"severity": config.severity_config})
@@ -374,12 +381,32 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
             config.scan_paths,
         )
 
+    # Separate workspaces into those to scan and those to skip (incremental mode)
+    to_scan: list[Path] = []
+    for ws in workspaces:
+        if workspace_cache and workspace_cache.should_skip(ws, config.rescan_clean_every):
+            workspace_cache.record_skip(ws)
+            report.results.append(WorkspaceScanResult(workspace_path=str(ws), skipped=True))
+            logger.debug("Skipping unchanged clean workspace: %s", ws)
+        else:
+            to_scan.append(ws)
+
+    if workspace_cache and len(to_scan) < len(workspaces):
+        skipped = len(workspaces) - len(to_scan)
+        logger.info(
+            "Incremental scan: skipping %d unchanged clean workspace(s), scanning %d",
+            skipped,
+            len(to_scan),
+        )
+
     # Scan workspaces — sequentially if workers=1, in parallel otherwise
     workers = max(1, config.workers)
 
     if workers == 1:
-        for workspace in workspaces:
+        for workspace in to_scan:
             result = scan_workspace(workspace, config, classifier)
+            if workspace_cache:
+                workspace_cache.record_scan(workspace, result.has_drift, bool(result.error))
             report.results.append(result)
             _log_workspace_result(result, workspace)
             if result.error and config.exit_on_error:
@@ -393,7 +420,7 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             future_to_ws = {
                 executor.submit(scan_workspace, ws, config, classifier): ws
-                for ws in workspaces
+                for ws in to_scan
             }
             for future in as_completed(future_to_ws):
                 if stop_early:
@@ -401,14 +428,16 @@ def run_scan(config: TfdriftConfig, base_dir: str = ".") -> ScanReport:
                     continue
                 ws = future_to_ws[future]
                 result = future.result()
+                if workspace_cache:
+                    workspace_cache.record_scan(ws, result.has_drift, bool(result.error))
                 completed[ws] = result
                 _log_workspace_result(result, ws)
                 if result.error and config.exit_on_error:
                     logger.error("Stopping scan (--exit-on-error)")
                     stop_early = True
 
-        # Preserve original discovery order in the report
-        for ws in workspaces:
+        # Preserve original discovery order in the report (skipped workspaces already added)
+        for ws in to_scan:
             if ws in completed:
                 report.results.append(completed[ws])
 
