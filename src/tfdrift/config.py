@@ -76,6 +76,8 @@ class TfdriftConfig:
     workers: int = 4
     history_db: str | None = None
     fail_on: str | None = None
+    incremental: bool = False
+    rescan_clean_every: int = 5
 
     def should_ignore(self, resource_address: str, attribute: str | None = None) -> bool:
         """Check if drift on a resource/attribute should be ignored."""
@@ -208,4 +210,6 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         workers=scan_config.get("workers", 4),
         history_db=raw_config.get("history_db"),
         fail_on=scan_config.get("fail_on"),
+        incremental=scan_config.get("incremental", False),
+        rescan_clean_every=scan_config.get("rescan_clean_every", 5),
     )

@@ -15,6 +15,7 @@ import click
 from rich.console import Console
 
 from tfdrift.blame import lookup_blame
+from tfdrift.cache import WorkspaceCache
 from tfdrift.config import TfdriftConfig, load_config
 from tfdrift.detectors.drift import run_scan
 from tfdrift.history import (
@@ -56,7 +57,7 @@ def setup_logging(verbose: bool = False, quiet: bool = False) -> None:
 
 
 @click.group()
-@click.version_option(version="0.2.6", prog_name="tfdrift")
+@click.version_option(version="0.3.0", prog_name="tfdrift")
 def main():
     """tfdrift — Continuous Terraform drift detection and remediation."""
     pass
@@ -164,6 +165,10 @@ def main():
     "--blame-region", default=None,
     help="AWS region for --blame CloudTrail queries",
 )
+@click.option(
+    "--incremental", is_flag=True, default=False,
+    help="Skip clean, unchanged workspaces using a local scan cache (~/.tfdrift/scan_cache.json)",
+)
 def scan(
     path: str,
     output_format: str,
@@ -189,6 +194,7 @@ def scan(
     run_blame: bool,
     blame_days: int,
     blame_region: str | None,
+    incremental: bool,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -212,12 +218,20 @@ def scan(
     if workers is not None:
         config.workers = workers
 
+    # Build workspace cache when incremental mode is requested
+    workspace_cache: WorkspaceCache | None = None
+    if incremental or config.incremental:
+        workspace_cache = WorkspaceCache()
+
     # Run scan
     if quiet:
-        report = run_scan(config, base_dir=path)
+        report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
     else:
         with console.status("[bold]Scanning for drift...", spinner="dots"):
-            report = run_scan(config, base_dir=path)
+            report = run_scan(config, base_dir=path, workspace_cache=workspace_cache)
+
+    if workspace_cache:
+        workspace_cache.save()
 
     # Resource filter
     if resource_filter:
@@ -387,6 +401,10 @@ def watch(
     if workers is not None:
         config.workers = workers
 
+    # Watch mode always uses incremental scanning — skip unchanged clean workspaces
+    # between cycles to keep each cycle fast.
+    watch_cache = WorkspaceCache()
+
     scan_count = 0
     try:
         while True:
@@ -401,10 +419,12 @@ def watch(
                 )
 
             if quiet:
-                report = run_scan(config, base_dir=path)
+                report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
             else:
                 with console.status("[bold]Scanning for drift...", spinner="dots"):
-                    report = run_scan(config, base_dir=path)
+                    report = run_scan(config, base_dir=path, workspace_cache=watch_cache)
+
+            watch_cache.save()
 
             if not quiet:
                 report_table(report, console, min_severity=min_severity)
