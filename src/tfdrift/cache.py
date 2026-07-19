@@ -85,7 +85,7 @@ class WorkspaceCache:
         if current_hash != entry.get("tf_hash"):
             return False
 
-        skips_so_far = entry.get("skips_since_last_scan", 0)
+        skips_so_far = int(entry.get("skips_since_last_scan", 0))
         return skips_so_far < rescan_clean_every - 1
 
     def record_scan(
