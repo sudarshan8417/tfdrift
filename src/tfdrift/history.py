@@ -43,6 +43,14 @@ def _init_db(conn: sqlite3.Connection) -> None:
             severity TEXT NOT NULL,
             attribute_count INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS suppressions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            resource_pattern TEXT NOT NULL,
+            reason TEXT,
+            suppressed_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            active INTEGER NOT NULL DEFAULT 1
+        );
     """)
 
 
@@ -228,3 +236,101 @@ def get_scan_resources(scan_id: str, db_path: Path = DEFAULT_DB_PATH) -> list[di
             (scan_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Suppression helpers
+# ---------------------------------------------------------------------------
+
+
+def parse_duration(duration: str) -> timedelta:
+    """Parse a human-friendly duration string into a timedelta.
+
+    Accepts: 30m, 4h, 7d
+    """
+    duration = duration.strip().lower()
+    m = re.fullmatch(r"(\d+)(m|h|d)", duration)
+    if not m:
+        raise ValueError(
+            f"Invalid duration '{duration}'. Use formats like 30m, 4h, or 7d."
+        )
+    n, unit = int(m.group(1)), m.group(2)
+    if unit == "m":
+        return timedelta(minutes=n)
+    if unit == "h":
+        return timedelta(hours=n)
+    return timedelta(days=n)
+
+
+def save_suppression(
+    resource_pattern: str,
+    duration: str,
+    reason: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> int:
+    """Create a new suppression entry. Returns the new row id."""
+    now = datetime.now(timezone.utc)
+    expires_at = now + parse_duration(duration)
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        cursor = conn.execute(
+            "INSERT INTO suppressions "
+            "(resource_pattern, reason, suppressed_at, expires_at, active) "
+            "VALUES (?, ?, ?, ?, 1)",
+            (resource_pattern, reason, now.isoformat(), expires_at.isoformat()),
+        )
+        return int(cursor.lastrowid) if cursor.lastrowid else 0
+
+
+def get_active_suppressions(db_path: Path = DEFAULT_DB_PATH) -> list[dict]:
+    """Return all suppressions that are active and not yet expired."""
+    if not db_path.exists():
+        return []
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        rows = conn.execute(
+            """SELECT id, resource_pattern, reason, suppressed_at, expires_at
+               FROM suppressions
+               WHERE active = 1 AND expires_at > ?
+               ORDER BY expires_at ASC""",
+            (now,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_suppressions(
+    db_path: Path = DEFAULT_DB_PATH,
+    include_expired: bool = False,
+) -> list[dict]:
+    """Return suppressions, optionally including expired ones."""
+    if not db_path.exists():
+        return []
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        if include_expired:
+            rows = conn.execute(
+                """SELECT id, resource_pattern, reason, suppressed_at, expires_at, active
+                   FROM suppressions ORDER BY suppressed_at DESC"""
+            ).fetchall()
+        else:
+            now = datetime.now(timezone.utc).isoformat()
+            rows = conn.execute(
+                """SELECT id, resource_pattern, reason, suppressed_at, expires_at, active
+                   FROM suppressions
+                   WHERE active = 1 AND expires_at > ?
+                   ORDER BY expires_at ASC""",
+                (now,),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def clear_suppression(resource_pattern: str, db_path: Path = DEFAULT_DB_PATH) -> int:
+    """Deactivate all suppressions matching the given pattern. Returns rows affected."""
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        cursor = conn.execute(
+            "UPDATE suppressions SET active = 0 WHERE resource_pattern = ? AND active = 1",
+            (resource_pattern,),
+        )
+        return cursor.rowcount
