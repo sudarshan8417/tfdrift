@@ -246,12 +246,6 @@ def scan(
     if workspace_cache:
         workspace_cache.save()
 
-    if not quiet and report.total_suppressed_count:
-        console.print(
-            f"[dim]ℹ {report.total_suppressed_count} suppressed resource(s) hidden "
-            f"— run [bold]tfdrift suppress --list[/bold] to review.[/dim]"
-        )
-
     # Resource filter
     if resource_filter:
         report = ScanReport(
@@ -286,6 +280,11 @@ def scan(
     if not quiet:
         if output_format == "table":
             report_table(report, console, min_severity=min_severity)
+            if report.total_suppressed_count:
+                console.print(
+                    f"[dim]ℹ {report.total_suppressed_count} suppressed resource(s) hidden "
+                    f"— run [bold]tfdrift suppress --list[/bold] to review.[/dim]"
+                )
         elif output is not None and not output_path:
             console.print(output)
         if output_path and output_format != "table":
