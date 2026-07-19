@@ -116,6 +116,7 @@ class WorkspaceScanResult:
     scan_duration_seconds: float = 0.0
     terraform_version: str | None = None
     skipped: bool = False
+    suppressed_count: int = 0
 
     @property
     def has_drift(self) -> bool:
@@ -141,6 +142,7 @@ class WorkspaceScanResult:
             "scan_duration_seconds": round(self.scan_duration_seconds, 2),
             "terraform_version": self.terraform_version,
             "skipped": self.skipped,
+            "suppressed_count": self.suppressed_count,
             "drifted_resources": [r.to_dict() for r in self.drifted_resources],
         }
 
@@ -184,6 +186,10 @@ class ScanReport:
     @property
     def errors(self) -> list[str]:
         return [r.error for r in self.results if r.error]
+
+    @property
+    def total_suppressed_count(self) -> int:
+        return sum(r.suppressed_count for r in self.results)
 
     def severity_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
