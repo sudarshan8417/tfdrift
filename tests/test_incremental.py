@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import patch
 
 from tfdrift.cache import WorkspaceCache
 from tfdrift.models import WorkspaceScanResult
-
 
 # ---------------------------------------------------------------------------
 # WorkspaceCache unit tests
@@ -189,7 +185,6 @@ class TestRunScanIncremental:
         from tfdrift.cache import WorkspaceCache
         from tfdrift.config import TfdriftConfig
         from tfdrift.detectors.drift import run_scan
-        from tfdrift.severity import SeverityClassifier
 
         config = TfdriftConfig(scan_paths=["."], workers=1, rescan_clean_every=5)
         cache = WorkspaceCache(tmp_path / "cache.json")
@@ -241,7 +236,7 @@ class TestRunScanIncremental:
 
         from tfdrift.config import TfdriftConfig
         from tfdrift.detectors.drift import run_scan
-        from tfdrift.models import DriftedResource, ChangeAction, Severity
+        from tfdrift.models import ChangeAction, DriftedResource
 
         config = TfdriftConfig(scan_paths=["."], workers=1, rescan_clean_every=5)
         cache = WorkspaceCache(tmp_path / "cache.json")
