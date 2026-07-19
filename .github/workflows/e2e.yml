@@ -150,16 +150,15 @@ jobs:
 
       - name: "[E2E 3] Scan with suppression — aws_instance.web hidden"
         run: |
-          OUTPUT=$(tfdrift scan \
+          tfdrift scan \
             --path /tmp/e2e/workspace \
             --binary /tmp/e2e/bin/terraform \
-            --format json 2>/dev/null || true)
-          echo "$OUTPUT"
-          DRIFT=$(echo "$OUTPUT" | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
-          total = data['summary']['total_drift_count']
-          print(total)
+            --format json \
+            --output /tmp/e2e/scan3.json || true
+          DRIFT=$(python3 -c "
+          import json
+          data = json.load(open('/tmp/e2e/scan3.json'))
+          print(data['summary']['total_drift_count'])
           ")
           echo "Drift count after suppression: $DRIFT"
           [ "$DRIFT" -eq 1 ] \
@@ -177,13 +176,14 @@ jobs:
 
       - name: "[E2E 4] Scan after clearing — both resources drifted"
         run: |
-          OUTPUT=$(tfdrift scan \
+          tfdrift scan \
             --path /tmp/e2e/workspace \
             --binary /tmp/e2e/bin/terraform \
-            --format json 2>/dev/null || true)
-          DRIFT=$(echo "$OUTPUT" | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
+            --format json \
+            --output /tmp/e2e/scan4.json || true
+          DRIFT=$(python3 -c "
+          import json
+          data = json.load(open('/tmp/e2e/scan4.json'))
           print(data['summary']['total_drift_count'])
           ")
           [ "$DRIFT" -eq 2 ] \
@@ -204,15 +204,15 @@ jobs:
 
       - name: "[E2E 5] Second incremental scan skips unchanged workspace"
         run: |
-          OUTPUT=$(tfdrift scan \
+          tfdrift scan \
             --path /tmp/e2e/workspace \
             --binary /tmp/e2e/bin/terraform-clean \
             --incremental \
-            --format json 2>/dev/null)
-          echo "$OUTPUT"
-          SKIPPED=$(echo "$OUTPUT" | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
+            --format json \
+            --output /tmp/e2e/scan5.json
+          SKIPPED=$(python3 -c "
+          import json
+          data = json.load(open('/tmp/e2e/scan5.json'))
           skipped = sum(1 for w in data['workspaces'] if w.get('skipped'))
           print(skipped)
           ")
@@ -243,9 +243,11 @@ jobs:
           tfdrift scan \
             --path /tmp/e2e/workspace \
             --binary /tmp/e2e/bin/terraform \
-            --format json 2>/dev/null || true | python3 -c "
-          import sys, json
-          data = json.load(sys.stdin)
+            --format json \
+            --output /tmp/e2e/scan7.json || true
+          python3 -c "
+          import json
+          data = json.load(open('/tmp/e2e/scan7.json'))
           assert 'summary' in data
           assert 'workspaces' in data
           assert 'total_drift_count' in data['summary']
