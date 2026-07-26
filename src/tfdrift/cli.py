@@ -33,6 +33,7 @@ from tfdrift.history import (
 from tfdrift.models import ScanReport, Severity, WorkspaceScanResult
 from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
+    notify_opsgenie,
     notify_pagerduty,
     notify_slack,
     notify_teams,
