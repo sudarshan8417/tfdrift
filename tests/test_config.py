@@ -113,3 +113,34 @@ aws_ecs_service.*.desired_count
             config_file.write_text("scan:\n  fail_on: critical\n")
             config = load_config(base_dir=tmpdir)
             assert config.fail_on == "critical"
+
+    def test_teams_webhook_defaults_to_none(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.teams_webhook_url is None
+            assert config.notifications.teams_min_severity == "high"
+
+    def test_teams_webhook_loaded_from_yaml(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text(
+                "notifications:\n"
+                "  teams:\n"
+                "    webhook_url: https://example.webhook.office.com/abc\n"
+                "    min_severity: critical\n"
+            )
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.teams_webhook_url == "https://example.webhook.office.com/abc"
+            assert config.notifications.teams_min_severity == "critical"
+
+    def test_teams_webhook_env_var_expansion(self, monkeypatch):
+        monkeypatch.setenv("TEAMS_WEBHOOK", "https://example.webhook.office.com/env")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text(
+                "notifications:\n"
+                "  teams:\n"
+                "    webhook_url: ${TEAMS_WEBHOOK}\n"
+            )
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.teams_webhook_url == "https://example.webhook.office.com/env"
