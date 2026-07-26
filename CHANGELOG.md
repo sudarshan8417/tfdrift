@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Microsoft Teams Incoming Webhook notification support — `--teams-webhook` flag on `scan` and `watch`, plus `notifications.teams` config block in `.tfdrift.yml`
+- Teams alerts use the MessageCard format with severity-colored theme, a summary section, and up to 10 individual drifted resource facts
+
 ## [0.2.3] - 2026-06-07
 
 ### Added
