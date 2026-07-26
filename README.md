@@ -20,7 +20,7 @@
 - **Multi-workspace scanning** — Recursively discovers all Terraform workspaces in a directory tree
 - **Structured drift reports** — JSON, Markdown, CSV, or human-readable table output
 - **Severity classification** — Categorizes drift by risk level (critical/high/medium/low) based on resource type and attribute
-- **Slack & webhook notifications** — Get alerted the moment drift is detected
+- **Slack, Teams & webhook notifications** — Get alerted the moment drift is detected (Slack, Microsoft Teams, PagerDuty, or any generic webhook)
 - **Auto-remediation** — Optionally run `terraform apply` to fix drift (with safety guards)
 - **CI/CD friendly** — Exit codes, JSON output, and GitHub Actions integration out of the box
 - **Watch mode** — Continuously monitor for drift on a schedule
@@ -106,6 +106,9 @@ Expected output:
 ```bash
 # Check every 30 minutes, notify Slack on drift
 tfdrift watch --interval 30m --slack-webhook https://hooks.slack.com/services/XXX
+
+# Notify Microsoft Teams on drift
+tfdrift watch --interval 30m --teams-webhook https://example.webhook.office.com/webhookb2/XXX
 ```
 
 ### Auto-remediate
@@ -154,6 +157,9 @@ notifications:
   slack:
     webhook_url: ${SLACK_WEBHOOK_URL}
     channel: "#infra-alerts"
+    min_severity: high
+  teams:
+    webhook_url: ${TEAMS_WEBHOOK_URL}
     min_severity: high
   webhook:
     url: ${WEBHOOK_URL}
