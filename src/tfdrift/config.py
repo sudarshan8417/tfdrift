@@ -39,6 +39,8 @@ class NotificationConfig:
     slack_webhook_url: str | None = None
     slack_channel: str | None = None
     slack_min_severity: str = "high"
+    teams_webhook_url: str | None = None
+    teams_min_severity: str = "high"
     webhook_url: str | None = None
     webhook_method: str = "POST"
     pagerduty_routing_key: str | None = None
@@ -165,6 +167,13 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         or None,
         slack_channel=notif_config.get("slack", {}).get("channel"),
         slack_min_severity=notif_config.get("slack", {}).get(
+            "min_severity", "high"
+        ),
+        teams_webhook_url=_expand_env_vars(
+            notif_config.get("teams", {}).get("webhook_url", "")
+        )
+        or None,
+        teams_min_severity=notif_config.get("teams", {}).get(
             "min_severity", "high"
         ),
         webhook_url=_expand_env_vars(
