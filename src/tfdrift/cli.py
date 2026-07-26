@@ -604,6 +604,9 @@ notifications:
     webhook_url: ${SLACK_WEBHOOK_URL}
     channel: "#infra-alerts"
     min_severity: high
+  # teams:
+  #   webhook_url: ${TEAMS_WEBHOOK_URL}
+  #   min_severity: high
   # pagerduty:
   #   routing_key: ${PAGERDUTY_ROUTING_KEY}
   #   min_severity: critical
