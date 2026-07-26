@@ -20,7 +20,7 @@
 - **Multi-workspace scanning** — Recursively discovers all Terraform workspaces in a directory tree
 - **Structured drift reports** — JSON, Markdown, CSV, or human-readable table output
 - **Severity classification** — Categorizes drift by risk level (critical/high/medium/low) based on resource type and attribute
-- **Slack, Teams & webhook notifications** — Get alerted the moment drift is detected (Slack, Microsoft Teams, PagerDuty, or any generic webhook)
+- **Slack, Teams, OpsGenie & webhook notifications** — Get alerted the moment drift is detected (Slack, Microsoft Teams, OpsGenie, PagerDuty, or any generic webhook)
 - **Auto-remediation** — Optionally run `terraform apply` to fix drift (with safety guards)
 - **CI/CD friendly** — Exit codes, JSON output, and GitHub Actions integration out of the box
 - **Watch mode** — Continuously monitor for drift on a schedule
@@ -161,6 +161,10 @@ notifications:
   teams:
     webhook_url: ${TEAMS_WEBHOOK_URL}
     min_severity: high
+  opsgenie:
+    api_key: ${OPSGENIE_API_KEY}
+    min_severity: high
+    region: us  # or eu
   webhook:
     url: ${WEBHOOK_URL}
     method: POST
