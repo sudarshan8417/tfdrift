@@ -636,6 +636,7 @@ def _send_notifications(
     config: TfdriftConfig,  # noqa: F821
     slack_webhook_override: str | None,
     teams_webhook_override: str | None = None,
+    opsgenie_key_override: str | None = None,
 ) -> None:
     """Send all configured notifications."""
     if not report.has_drift:
@@ -656,6 +657,15 @@ def _send_notifications(
             report,
             teams_url,
             min_severity=config.notifications.teams_min_severity,
+        )
+
+    og_key = opsgenie_key_override or config.notifications.opsgenie_api_key
+    if og_key:
+        notify_opsgenie(
+            report,
+            og_key,
+            min_severity=config.notifications.opsgenie_min_severity,
+            region=config.notifications.opsgenie_region,
         )
 
     if config.notifications.webhook_url:
