@@ -1,7 +1,6 @@
 """Tests for Microsoft Teams notification support."""
 from unittest.mock import MagicMock, patch
 
-import pytest
 import requests
 
 from tfdrift.models import (
@@ -58,7 +57,8 @@ class TestNotifyTeams:
 
     def test_returns_false_when_drift_below_min_severity(self):
         report = _drift_report(Severity.LOW)
-        assert notify_teams(report, "https://example.webhook.office.com/x", min_severity="high") is False
+        result = notify_teams(report, "https://example.webhook.office.com/x", min_severity="high")
+        assert result is False
 
     def test_sends_message_card_payload(self):
         report = _drift_report(Severity.HIGH)
@@ -124,7 +124,10 @@ class TestNotifyTeams:
     def test_returns_false_on_connection_error(self):
         report = _drift_report(Severity.HIGH)
 
-        with patch("tfdrift.reporters.output.requests.post", side_effect=requests.ConnectionError()):
+        with patch(
+            "tfdrift.reporters.output.requests.post",
+            side_effect=requests.ConnectionError(),
+        ):
             result = notify_teams(report, "https://example.webhook.office.com/x")
 
         assert result is False
@@ -137,7 +140,11 @@ class TestNotifyTeams:
                 resource_name=f"web{i}",
                 action=ChangeAction.UPDATE,
                 severity=Severity.HIGH,
-                changes=[AttributeChange(attribute="instance_type", old_value="t3.micro", new_value="t3.large")],
+                changes=[
+                    AttributeChange(
+                        attribute="instance_type", old_value="t3.micro", new_value="t3.large"
+                    )
+                ],
             )
             for i in range(15)
         ]
@@ -151,5 +158,7 @@ class TestNotifyTeams:
             notify_teams(report, "https://example.webhook.office.com/x", min_severity="low")
 
         payload = mock_post.call_args[1]["json"]
-        resource_section = next(s for s in payload["sections"] if s.get("title") == "Drifted Resources")
+        resource_section = next(
+            s for s in payload["sections"] if s.get("title") == "Drifted Resources"
+        )
         assert len(resource_section["facts"]) <= 10
