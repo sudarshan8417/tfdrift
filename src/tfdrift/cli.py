@@ -367,6 +367,10 @@ def scan(
 )
 @click.option("--slack-webhook", default=None, help="Slack webhook URL")
 @click.option(
+    "--teams-webhook", default=None,
+    help="Microsoft Teams Incoming Webhook URL for notifications",
+)
+@click.option(
     "--binary", default=None,
     help="Path to terraform/tofu binary",
 )
@@ -399,6 +403,7 @@ def watch(
     interval: str,
     config_path: str | None,
     slack_webhook: str | None,
+    teams_webhook: str | None,
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
@@ -420,6 +425,8 @@ def watch(
 
     if slack_webhook:
         config.notifications.slack_webhook_url = slack_webhook
+    if teams_webhook:
+        config.notifications.teams_webhook_url = teams_webhook
     if binary:
         config.terraform_binary = binary
     if workers is not None:
