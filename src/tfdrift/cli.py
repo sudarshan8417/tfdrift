@@ -619,6 +619,7 @@ def _send_notifications(
     report: ScanReport,  # noqa: F821
     config: TfdriftConfig,  # noqa: F821
     slack_webhook_override: str | None,
+    teams_webhook_override: str | None = None,
 ) -> None:
     """Send all configured notifications."""
     if not report.has_drift:
@@ -631,6 +632,14 @@ def _send_notifications(
             webhook_url,
             channel=config.notifications.slack_channel,
             min_severity=config.notifications.slack_min_severity,
+        )
+
+    teams_url = teams_webhook_override or config.notifications.teams_webhook_url
+    if teams_url:
+        notify_teams(
+            report,
+            teams_url,
+            min_severity=config.notifications.teams_min_severity,
         )
 
     if config.notifications.webhook_url:
