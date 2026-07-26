@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Microsoft Teams Incoming Webhook notification support — `--teams-webhook` flag on `scan` and `watch`, plus `notifications.teams` config block in `.tfdrift.yml`
 - Teams alerts use the MessageCard format with severity-colored theme, a summary section, and up to 10 individual drifted resource facts
+- OpsGenie Alerts API v2 notification support — `--opsgenie-key` flag on `scan` and `watch`, plus `notifications.opsgenie` config block in `.tfdrift.yml`
+- OpsGenie alerts map tfdrift severity to OpsGenie priorities (critical→P1, high→P2, medium→P3, low→P4) and support both US and EU API regions
 
 ## [0.2.3] - 2026-06-07
 
