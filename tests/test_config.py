@@ -133,6 +133,40 @@ aws_ecs_service.*.desired_count
             assert config.notifications.teams_webhook_url == "https://example.webhook.office.com/abc"
             assert config.notifications.teams_min_severity == "critical"
 
+    def test_opsgenie_defaults_to_none(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.opsgenie_api_key is None
+            assert config.notifications.opsgenie_min_severity == "high"
+            assert config.notifications.opsgenie_region == "us"
+
+    def test_opsgenie_loaded_from_yaml(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text(
+                "notifications:\n"
+                "  opsgenie:\n"
+                "    api_key: abc-123\n"
+                "    min_severity: critical\n"
+                "    region: eu\n"
+            )
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.opsgenie_api_key == "abc-123"
+            assert config.notifications.opsgenie_min_severity == "critical"
+            assert config.notifications.opsgenie_region == "eu"
+
+    def test_opsgenie_api_key_env_var_expansion(self, monkeypatch):
+        monkeypatch.setenv("OG_API_KEY", "env-key-xyz")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_file = Path(tmpdir) / ".tfdrift.yml"
+            config_file.write_text(
+                "notifications:\n"
+                "  opsgenie:\n"
+                "    api_key: ${OG_API_KEY}\n"
+            )
+            config = load_config(base_dir=tmpdir)
+            assert config.notifications.opsgenie_api_key == "env-key-xyz"
+
     def test_teams_webhook_env_var_expansion(self, monkeypatch):
         monkeypatch.setenv("TEAMS_WEBHOOK", "https://example.webhook.office.com/env")
         with tempfile.TemporaryDirectory() as tmpdir:
