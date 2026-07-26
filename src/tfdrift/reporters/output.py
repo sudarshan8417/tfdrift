@@ -469,6 +469,85 @@ def notify_slack(
         return False
 
 
+def notify_teams(
+    report: ScanReport,
+    webhook_url: str,
+    min_severity: str = "high",
+) -> bool:
+    """Send a drift notification to Microsoft Teams via Incoming Webhook.
+
+    Uses the MessageCard format supported by all Teams Incoming Webhook connectors.
+    """
+    if not report.has_drift:
+        return False
+
+    min_sev = Severity(min_severity)
+    qualifying = _qualifying_resources(report, min_sev)
+    if not qualifying:
+        return False
+
+    counts = report.severity_counts()
+    severity_line = " | ".join(
+        f"{SEVERITY_EMOJI.get(Severity(k), '')} {k}: {v}"
+        for k, v in counts.items()
+        if v > 0
+    )
+
+    # Theme color: red for critical/high, orange for medium, blue otherwise
+    if report.max_severity in (Severity.CRITICAL, Severity.HIGH):
+        theme_color = "FF4444"
+    elif report.max_severity == Severity.MEDIUM:
+        theme_color = "FFA500"
+    else:
+        theme_color = "0078D4"
+
+    facts_summary = [
+        {"name": "Workspaces scanned", "value": str(report.total_workspaces)},
+        {"name": "Workspaces with drift", "value": str(report.workspaces_with_drift)},
+        {"name": "Resources drifted", "value": str(report.total_drift_count)},
+        {"name": "Severity breakdown", "value": severity_line or "—"},
+    ]
+
+    resource_facts = []
+    for workspace_path, resource in qualifying[:10]:
+        emoji = SEVERITY_EMOJI.get(resource.severity, "")
+        changed = ", ".join(f"`{c.attribute}`" for c in resource.changes[:5]) or "—"
+        resource_facts.append({
+            "name": f"{emoji} {resource.severity.value.upper()} — {resource.full_address}",
+            "value": f"{resource.action.value} | {workspace_path} | changed: {changed}",
+        })
+
+    sections = [
+        {
+            "activityTitle": (
+                f"⚠️ {report.total_drift_count} resource(s) drifted "
+                f"across {report.workspaces_with_drift}/{report.total_workspaces} workspace(s)"
+            ),
+            "facts": facts_summary,
+        },
+    ]
+    if resource_facts:
+        sections.append({"title": "Drifted Resources", "facts": resource_facts})
+
+    payload = {
+        "@type": "MessageCard",
+        "@context": "https://schema.org/extensions",
+        "summary": f"Terraform drift detected: {report.total_drift_count} resource(s)",
+        "themeColor": theme_color,
+        "title": "Terraform Drift Detected",
+        "sections": sections,
+    }
+
+    try:
+        resp = requests.post(webhook_url, json=payload, timeout=10)
+        resp.raise_for_status()
+        logger.info("Teams notification sent successfully")
+        return True
+    except requests.RequestException as e:
+        logger.error("Failed to send Teams notification: %s", e)
+        return False
+
+
 def notify_webhook(report: ScanReport, url: str, method: str = "POST") -> bool:
     """Send drift report to a generic webhook endpoint."""
     try:
