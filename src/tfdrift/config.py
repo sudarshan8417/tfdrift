@@ -41,6 +41,9 @@ class NotificationConfig:
     slack_min_severity: str = "high"
     teams_webhook_url: str | None = None
     teams_min_severity: str = "high"
+    opsgenie_api_key: str | None = None
+    opsgenie_min_severity: str = "high"
+    opsgenie_region: str = "us"
     webhook_url: str | None = None
     webhook_method: str = "POST"
     pagerduty_routing_key: str | None = None
@@ -176,6 +179,14 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         teams_min_severity=notif_config.get("teams", {}).get(
             "min_severity", "high"
         ),
+        opsgenie_api_key=_expand_env_vars(
+            notif_config.get("opsgenie", {}).get("api_key", "")
+        )
+        or None,
+        opsgenie_min_severity=notif_config.get("opsgenie", {}).get(
+            "min_severity", "high"
+        ),
+        opsgenie_region=notif_config.get("opsgenie", {}).get("region", "us"),
         webhook_url=_expand_env_vars(
             notif_config.get("webhook", {}).get("url", "")
         )
