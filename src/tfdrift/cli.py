@@ -108,6 +108,10 @@ def main():
     help="Slack webhook URL for notifications",
 )
 @click.option(
+    "--teams-webhook", default=None,
+    help="Microsoft Teams Incoming Webhook URL for notifications",
+)
+@click.option(
     "--var-file", "var_files", multiple=True,
     help="Path to .tfvars file (can be specified multiple times)",
 )
@@ -185,6 +189,7 @@ def scan(
     dry_run: bool,
     env: str | None,
     slack_webhook: str | None,
+    teams_webhook: str | None,
     var_files: tuple[str, ...],
     cli_vars: tuple[str, ...],
     quiet: bool,
@@ -295,7 +300,7 @@ def scan(
     effective_fail_on = fail_on or config.fail_on
 
     # Notifications
-    _send_notifications(report, config, slack_webhook)
+    _send_notifications(report, config, slack_webhook, teams_webhook)
 
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
