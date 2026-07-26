@@ -620,6 +620,10 @@ notifications:
   # teams:
   #   webhook_url: ${TEAMS_WEBHOOK_URL}
   #   min_severity: high
+  # opsgenie:
+  #   api_key: ${OPSGENIE_API_KEY}
+  #   min_severity: high
+  #   region: us   # or eu
   # pagerduty:
   #   routing_key: ${PAGERDUTY_ROUTING_KEY}
   #   min_severity: critical
