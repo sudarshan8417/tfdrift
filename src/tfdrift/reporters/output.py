@@ -7,6 +7,7 @@ Handles all the ways we present drift results to the user:
 - HTML (standalone report page)
 - CSV (for spreadsheets and data pipelines)
 - Slack webhooks
+- Microsoft Teams Incoming Webhooks (MessageCard format)
 - PagerDuty Events API v2
 - Generic webhooks
 """
@@ -558,7 +559,7 @@ def notify_webhook(report: ScanReport, url: str, method: str = "POST") -> bool:
             timeout=10,
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "tfdrift/0.2.3",
+                "User-Agent": "tfdrift/0.4.0",
             },
         )
         resp.raise_for_status()
