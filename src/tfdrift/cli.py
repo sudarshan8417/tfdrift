@@ -35,6 +35,7 @@ from tfdrift.remediators.fix import remediate_report
 from tfdrift.reporters.output import (
     notify_pagerduty,
     notify_slack,
+    notify_teams,
     notify_webhook,
     report_csv,
     report_github_actions,
