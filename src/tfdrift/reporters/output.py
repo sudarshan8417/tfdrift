@@ -8,6 +8,7 @@ Handles all the ways we present drift results to the user:
 - CSV (for spreadsheets and data pipelines)
 - Slack webhooks
 - Microsoft Teams Incoming Webhooks (MessageCard format)
+- OpsGenie Alerts API v2
 - PagerDuty Events API v2
 - Generic webhooks
 """
@@ -567,6 +568,96 @@ def notify_webhook(report: ScanReport, url: str, method: str = "POST") -> bool:
         return True
     except requests.RequestException as e:
         logger.error("Failed to send webhook notification: %s", e)
+        return False
+
+
+def notify_opsgenie(
+    report: ScanReport,
+    api_key: str,
+    min_severity: str = "high",
+    region: str = "us",
+) -> bool:
+    """Send a drift alert to OpsGenie via the Alerts API v2.
+
+    Supports both US (api.opsgenie.com) and EU (api.eu.opsgenie.com) regions.
+    """
+    if not report.has_drift:
+        return False
+
+    min_sev = Severity(min_severity)
+    if not _qualifying_resources(report, min_sev):
+        return False
+
+    # Map tfdrift severity → OpsGenie priority (P1–P4)
+    og_priority = {
+        Severity.CRITICAL: "P1",
+        Severity.HIGH: "P2",
+        Severity.MEDIUM: "P3",
+        Severity.LOW: "P4",
+        Severity.INFO: "P5",
+    }
+    priority = og_priority.get(report.max_severity or Severity.MEDIUM, "P3")
+
+    counts = report.severity_counts()
+    severity_line = ", ".join(f"{k}: {v}" for k, v in counts.items() if v > 0)
+
+    description_lines = [
+        f"Workspaces scanned: {report.total_workspaces}",
+        f"Workspaces with drift: {report.workspaces_with_drift}",
+        f"Total drifted resources: {report.total_drift_count}",
+        f"Severity breakdown: {severity_line}",
+        "",
+    ]
+    for workspace_path, resource in _qualifying_resources(report, min_sev)[:10]:
+        emoji = SEVERITY_EMOJI.get(resource.severity, "")
+        changed = ", ".join(c.attribute for c in resource.changes[:5]) or "—"
+        description_lines.append(
+            f"{emoji} [{resource.severity.value.upper()}] {resource.full_address}"
+            f" — {resource.action.value} ({workspace_path}) — changed: {changed}"
+        )
+
+    base_url = (
+        "https://api.eu.opsgenie.com" if region == "eu" else "https://api.opsgenie.com"
+    )
+
+    payload = {
+        "message": (
+            f"Terraform drift detected: {report.total_drift_count} resource(s) "
+            f"across {report.workspaces_with_drift}/{report.total_workspaces} workspace(s)"
+        ),
+        "alias": "tfdrift-drift-detected",
+        "description": "\n".join(description_lines),
+        "priority": priority,
+        "tags": [
+            "terraform", "drift",
+            f"severity:{report.max_severity.value if report.max_severity else 'unknown'}",
+        ],
+        "details": {
+            "total_drift": str(report.total_drift_count),
+            "workspaces_scanned": str(report.total_workspaces),
+            "workspaces_with_drift": str(report.workspaces_with_drift),
+            "max_severity": report.max_severity.value if report.max_severity else "none",
+            "severity_counts": severity_line,
+        },
+        "source": "tfdrift",
+        "entity": "infrastructure",
+    }
+
+    try:
+        resp = requests.post(
+            f"{base_url}/v2/alerts",
+            json=payload,
+            headers={
+                "Authorization": f"GenieKey {api_key}",
+                "Content-Type": "application/json",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        logger.info("OpsGenie alert sent successfully (priority %s)", priority)
+        return True
+    except requests.RequestException as e:
+        logger.error("Failed to send OpsGenie alert: %s", e)
         return False
 
 
