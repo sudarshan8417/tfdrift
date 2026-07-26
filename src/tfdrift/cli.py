@@ -113,6 +113,10 @@ def main():
     help="Microsoft Teams Incoming Webhook URL for notifications",
 )
 @click.option(
+    "--opsgenie-key", default=None,
+    help="OpsGenie API key for alert notifications",
+)
+@click.option(
     "--var-file", "var_files", multiple=True,
     help="Path to .tfvars file (can be specified multiple times)",
 )
@@ -191,6 +195,7 @@ def scan(
     env: str | None,
     slack_webhook: str | None,
     teams_webhook: str | None,
+    opsgenie_key: str | None,
     var_files: tuple[str, ...],
     cli_vars: tuple[str, ...],
     quiet: bool,
@@ -301,7 +306,7 @@ def scan(
     effective_fail_on = fail_on or config.fail_on
 
     # Notifications
-    _send_notifications(report, config, slack_webhook, teams_webhook)
+    _send_notifications(report, config, slack_webhook, teams_webhook, opsgenie_key)
 
     # GitHub Actions annotations + step summary
     if github_actions or os.environ.get("GITHUB_ACTIONS") == "true":
