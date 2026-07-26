@@ -377,6 +377,10 @@ def scan(
     help="Microsoft Teams Incoming Webhook URL for notifications",
 )
 @click.option(
+    "--opsgenie-key", default=None,
+    help="OpsGenie API key for alert notifications",
+)
+@click.option(
     "--binary", default=None,
     help="Path to terraform/tofu binary",
 )
@@ -410,6 +414,7 @@ def watch(
     config_path: str | None,
     slack_webhook: str | None,
     teams_webhook: str | None,
+    opsgenie_key: str | None,
     binary: str | None,
     verbose: bool,
     min_severity: str | None,
@@ -433,6 +438,8 @@ def watch(
         config.notifications.slack_webhook_url = slack_webhook
     if teams_webhook:
         config.notifications.teams_webhook_url = teams_webhook
+    if opsgenie_key:
+        config.notifications.opsgenie_api_key = opsgenie_key
     if binary:
         config.terraform_binary = binary
     if workers is not None:
