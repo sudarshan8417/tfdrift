@@ -104,12 +104,34 @@ DEFAULT_HIGH_PATTERNS = [
     "google_storage_bucket.*.uniform_bucket_level_access",
 ]
 
+DEFAULT_MEDIUM_PATTERNS = [
+    # AWS Lambda — concurrency limits affect availability but aren't security issues
+    "aws_lambda_function.*.reserved_concurrent_executions",
+    "aws_lambda_function.*.timeout",
+    "aws_lambda_function.*.memory_size",
+    # AWS EKS — scaling changes affect cost/capacity but not directly security
+    "aws_eks_node_group.*.scaling_config",
+    # AWS Autoscaling — min/max affect availability guarantees
+    "aws_autoscaling_group.*.min_size",
+    "aws_autoscaling_group.*.max_size",
+    # AWS ECS — task count changes are operational but not critical
+    "aws_ecs_service.*.desired_count",
+    # AWS ElastiCache
+    "aws_elasticache_cluster.*.num_cache_nodes",
+    # Azure
+    "azurerm_linux_virtual_machine_scale_set.*.sku",
+    "azurerm_windows_virtual_machine_scale_set.*.sku",
+]
+
 DEFAULT_LOW_PATTERNS = [
     "*.tags",
     "*.tags.*",
     "*.labels",
     "*.labels.*",
     "*.description",
+    # Autoscaling desired count is operational noise in most environments
+    "aws_autoscaling_group.*.desired_capacity",
+    "aws_ecs_service.*.health_check_grace_period_seconds",
 ]
 
 
@@ -137,6 +159,9 @@ class SeverityClassifier:
     )
     high_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_HIGH_PATTERNS)
+    )
+    medium_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_MEDIUM_PATTERNS)
     )
     low_patterns: list[str] = field(
         default_factory=lambda: list(DEFAULT_LOW_PATTERNS)
@@ -191,6 +216,10 @@ class SeverityClassifier:
             if _pattern_matches(pattern, target):
                 return Severity.HIGH
 
+        for pattern in self.medium_patterns:
+            if _pattern_matches(pattern, target):
+                return Severity.MEDIUM
+
         for pattern in self.low_patterns:
             if _pattern_matches(pattern, target):
                 return Severity.LOW
@@ -209,6 +238,10 @@ class SeverityClassifier:
         if "high" in severity_config:
             kwargs["high_patterns"] = (
                 list(DEFAULT_HIGH_PATTERNS) + severity_config["high"]
+            )
+        if "medium" in severity_config:
+            kwargs["medium_patterns"] = (
+                list(DEFAULT_MEDIUM_PATTERNS) + severity_config["medium"]
             )
         if "low" in severity_config:
             kwargs["low_patterns"] = (
