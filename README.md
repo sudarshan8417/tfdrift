@@ -51,6 +51,23 @@ tfdrift scan --format markdown --output drift-report.md
 
 # Output as CSV (one row per drifted resource — great for spreadsheets or data pipelines)
 tfdrift scan --format csv --output drift-report.csv
+
+# Exclude noisy resources (e.g. autoscaling desired_capacity)
+tfdrift scan --exclude-resource "aws_autoscaling_group*"
+```
+
+### Compare two reports (diff mode)
+
+Save a baseline then diff against a later scan to see only net-new drift:
+
+```bash
+tfdrift scan --format json --output baseline.json
+# ... deploy, changes happen ...
+tfdrift scan --format json --output current.json
+tfdrift diff baseline.json current.json
+
+# In CI — exit 1 only when new drift appears
+tfdrift diff baseline.json current.json --fail-on-new
 ```
 
 ### Try it locally (no cloud credentials needed)
