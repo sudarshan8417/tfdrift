@@ -53,7 +53,8 @@ def _collect_resources(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 def load_report(path: str) -> dict[str, Any]:
     """Load a tfdrift JSON report from disk."""
     content = Path(path).read_text()
-    return json.loads(content)
+    data: dict[str, Any] = json.loads(content)
+    return data
 
 
 def compute_diff(baseline: dict[str, Any], current: dict[str, Any]) -> DriftDiff:
