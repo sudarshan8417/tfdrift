@@ -59,20 +59,36 @@ DEFAULT_CRITICAL_PATTERNS = [
 ]
 
 DEFAULT_HIGH_PATTERNS = [
-    # AWS
+    # AWS EC2
     "aws_instance.*.instance_type",
     "aws_instance.*.ami",
     "aws_instance.*.user_data",
+    # AWS RDS
     "aws_rds_instance.*.engine_version",
     "aws_rds_instance.*.publicly_accessible",
     "aws_rds_instance.*.storage_encrypted",
+    "aws_db_instance.*.multi_az",
+    "aws_db_instance.*.publicly_accessible",
+    "aws_db_instance.*.storage_encrypted",
+    "aws_rds_cluster.*.engine_version",
+    # AWS S3
     "aws_s3_bucket.*.versioning",
     "aws_s3_bucket.*.server_side_encryption_configuration",
+    # AWS Lambda
     "aws_lambda_function.*.runtime",
     "aws_lambda_function.*.environment",
+    # AWS ECS
+    "aws_ecs_task_definition.*.container_definitions",
+    "aws_ecs_task_definition.*.task_role_arn",
+    "aws_ecs_task_definition.*.execution_role_arn",
+    # AWS EKS
+    "aws_eks_cluster.*.version",
+    "aws_eks_node_group.*.instance_types",
+    "aws_eks_node_group.*.ami_type",
+    # AWS Other
     "aws_cloudfront_distribution.*.viewer_certificate",
     "aws_elasticache_cluster.*.engine_version",
-    "aws_eks_cluster.*.version",
+    "aws_elasticache_replication_group.*.automatic_failover_enabled",
     # Azure
     "azurerm_virtual_machine.*.vm_size",
     "azurerm_linux_virtual_machine.*.size",
