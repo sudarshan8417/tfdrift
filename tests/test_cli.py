@@ -293,3 +293,121 @@ class TestFailOnSeverityGHA:
         report_github_actions(report, fail_on_severity="low")
         out = capsys.readouterr().out
         assert "fail-on-severity" not in out
+
+
+class TestExcludeResource:
+    def _invoke_scan(self, report: ScanReport, extra_args: list):
+        runner = CliRunner()
+        with patch("tfdrift.cli.run_scan", return_value=report), \
+             patch("tfdrift.cli._save_history"):
+            return runner.invoke(main, ["scan", "--path", "/tmp"] + extra_args)
+
+    def test_excludes_matching_resource(self):
+        report = _make_report_with_drift()
+        result = self._invoke_scan(report, ["--exclude-resource", "aws_instance*"])
+        assert result.exit_code == 1
+        assert "aws_instance.web" not in result.output
+
+    def test_keeps_non_matching_resources(self):
+        report = _make_report_with_drift()
+        result = self._invoke_scan(report, ["--exclude-resource", "aws_instance*"])
+        assert "aws_s3_bucket.data" in result.output
+
+    def test_excludes_all_resources_exits_0(self):
+        report = _make_report_with_drift()
+        result = self._invoke_scan(report, ["--exclude-resource", "*"])
+        assert result.exit_code == 0
+
+    def test_no_exclude_shows_all_resources(self):
+        report = _make_report_with_drift()
+        result = self._invoke_scan(report, [])
+        assert result.exit_code == 1
+        assert "aws_instance.web" in result.output
+
+
+class TestDiffCLI:
+    def test_diff_identical_reports_exits_0(self, tmp_path):
+        import json as _json
+        report = {
+            "summary": {},
+            "workspaces": [{
+                "workspace_path": "/infra/prod",
+                "drifted_resources": [
+                    {"address": "aws_instance.web", "action": "update",
+                     "severity": "high", "changes": []}
+                ],
+            }],
+        }
+        baseline = tmp_path / "baseline.json"
+        current = tmp_path / "current.json"
+        baseline.write_text(_json.dumps(report))
+        current.write_text(_json.dumps(report))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["diff", str(baseline), str(current)])
+        assert result.exit_code == 0
+        assert "persisting" in result.output.lower()
+
+    def test_diff_new_drift_detected(self, tmp_path):
+        import json as _json
+        baseline = {"summary": {}, "workspaces": [
+            {"workspace_path": "/p", "drifted_resources": []}
+        ]}
+        current = {
+            "summary": {},
+            "workspaces": [{
+                "workspace_path": "/p",
+                "drifted_resources": [
+                    {"address": "aws_instance.web", "action": "update",
+                     "severity": "high", "changes": []}
+                ],
+            }],
+        }
+        b = tmp_path / "b.json"
+        c = tmp_path / "c.json"
+        b.write_text(_json.dumps(baseline))
+        c.write_text(_json.dumps(current))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["diff", str(b), str(c)])
+        assert result.exit_code == 0
+        assert "new" in result.output.lower()
+
+    def test_diff_fail_on_new_exits_1(self, tmp_path):
+        import json as _json
+        baseline = {"summary": {}, "workspaces": [
+            {"workspace_path": "/p", "drifted_resources": []}
+        ]}
+        current = {
+            "summary": {},
+            "workspaces": [{
+                "workspace_path": "/p",
+                "drifted_resources": [
+                    {"address": "aws_instance.web", "action": "update",
+                     "severity": "high", "changes": []}
+                ],
+            }],
+        }
+        b = tmp_path / "b.json"
+        c = tmp_path / "c.json"
+        b.write_text(_json.dumps(baseline))
+        c.write_text(_json.dumps(current))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["diff", str(b), str(c), "--fail-on-new"])
+        assert result.exit_code == 1
+
+    def test_diff_json_output(self, tmp_path):
+        import json as _json
+        report = {"summary": {}, "workspaces": [{"workspace_path": "/p", "drifted_resources": []}]}
+        b = tmp_path / "b.json"
+        c = tmp_path / "c.json"
+        b.write_text(_json.dumps(report))
+        c.write_text(_json.dumps(report))
+
+        runner = CliRunner()
+        result = runner.invoke(main, ["diff", str(b), str(c), "--format", "json"])
+        assert result.exit_code == 0
+        parsed = _json.loads(result.output)
+        assert "summary" in parsed
+        assert "new_drift" in parsed
