@@ -35,6 +35,11 @@ DEFAULT_CRITICAL_PATTERNS = [
     "aws_kms_key.*.key_policy",
     "aws_vpc.*.enable_dns_hostnames",
     "aws_network_acl_rule.*",
+    # RDS — losing deletion protection or backups on a prod DB is catastrophic
+    "aws_db_instance.*.deletion_protection",
+    "aws_db_instance.*.backup_retention_period",
+    "aws_rds_cluster.*.deletion_protection",
+    "aws_rds_cluster.*.backup_retention_period",
     # Azure
     "azurerm_network_security_group.*.security_rule",
     "azurerm_network_security_rule.*",
