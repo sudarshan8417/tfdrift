@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `tfdrift diff` command — compare two JSON scan reports to show new, resolved, and persisting drift; `--fail-on-new` flag exits 1 on net-new drift (ideal for CI gate)
+- `--exclude-resource` flag on `scan` — exclude resources matching a glob pattern from output (e.g. `--exclude-resource "aws_autoscaling*"`)
+- Explicit `medium` severity tier in the classifier with patterns for Lambda timeout/memory/concurrency, EKS node group scaling, ASG min/max size, and ECS desired count
+- New `critical` patterns for RDS/Aurora `deletion_protection` and `backup_retention_period`
+- New `high` patterns for ECS task definitions, EKS node group instance types, and RDS multi-AZ / publicly accessible
+- `medium` severity block now configurable in `.tfdrift.yml` under `severity.medium`
+
 ## [0.5.0] - 2026-07-26
 
 ### Added
