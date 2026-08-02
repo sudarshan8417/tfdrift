@@ -161,6 +161,10 @@ def main():
     help="Filter output to resources matching this pattern (e.g. 'aws_s3*')",
 )
 @click.option(
+    "--exclude-resource", "exclude_resource", default=None,
+    help="Exclude resources matching this pattern from output (e.g. 'aws_autoscaling*')",
+)
+@click.option(
     "--workers", "-w", default=None, type=int,
     help="Number of parallel workers for scanning workspaces (default: 4)",
 )
@@ -206,6 +210,7 @@ def scan(
     min_severity: str | None,
     fail_on: str | None,
     resource_filter: str | None,
+    exclude_resource: str | None,
     workers: int | None,
     github_actions: bool,
     run_blame: bool,
@@ -267,6 +272,27 @@ def scan(
                     drifted_resources=[
                         res for res in r.drifted_resources
                         if fnmatch.fnmatch(res.full_address, resource_filter)
+                    ],
+                    error=r.error,
+                    scan_duration_seconds=r.scan_duration_seconds,
+                    terraform_version=r.terraform_version,
+                )
+                for r in report.results
+            ],
+            scan_started_at=report.scan_started_at,
+            scan_finished_at=report.scan_finished_at,
+            config_path=report.config_path,
+        )
+
+    # Exclude resource filter
+    if exclude_resource:
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path=r.workspace_path,
+                    drifted_resources=[
+                        res for res in r.drifted_resources
+                        if not fnmatch.fnmatch(res.full_address, exclude_resource)
                     ],
                     error=r.error,
                     scan_duration_seconds=r.scan_duration_seconds,
