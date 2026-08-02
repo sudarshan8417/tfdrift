@@ -283,3 +283,56 @@ class TestModels:
         counts = report.severity_counts()
         assert counts["critical"] == 1
         assert counts["high"] == 2
+
+
+class TestScanReportJson:
+    def test_to_json_round_trips(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path="/infra/prod",
+                    drifted_resources=[
+                        DriftedResource(
+                            address="aws_instance.web",
+                            resource_type="aws_instance",
+                            resource_name="web",
+                            action=ChangeAction.UPDATE,
+                            severity=Severity.HIGH,
+                            changes=[
+                                AttributeChange("instance_type", "t3.micro", "t3.large")
+                            ],
+                        )
+                    ],
+                )
+            ]
+        )
+        report.finish()
+        data = json.loads(report.to_json())
+        assert data["summary"]["total_drift_count"] == 1
+        assert data["summary"]["workspaces_with_drift"] == 1
+        assert data["summary"]["max_severity"] == "high"
+        assert data["scan_finished_at"] is not None
+        ws = data["workspaces"][0]
+        assert ws["workspace_path"] == "/infra/prod"
+        resource = ws["drifted_resources"][0]
+        assert resource["address"] == "aws_instance.web"
+        assert resource["action"] == "update"
+        assert resource["changes"][0]["attribute"] == "instance_type"
+
+    def test_total_suppressed_count(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(workspace_path="/a", suppressed_count=3),
+                WorkspaceScanResult(workspace_path="/b", suppressed_count=1),
+            ]
+        )
+        assert report.total_suppressed_count == 4
+
+    def test_errors_property(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(workspace_path="/a", error="init failed"),
+                WorkspaceScanResult(workspace_path="/b"),
+            ]
+        )
+        assert report.errors == ["init failed"]
