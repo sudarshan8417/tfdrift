@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.1] - 2026-08-02
 
 ### Added
 - `tfdrift diff` command — compare two JSON scan reports to show new, resolved, and persisting drift; `--fail-on-new` flag exits 1 on net-new drift (ideal for CI gate)
