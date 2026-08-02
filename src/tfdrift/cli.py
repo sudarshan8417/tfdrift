@@ -434,6 +434,10 @@ def scan(
     default=None,
     help="Exit 1 and stop watching when drift meets or exceeds this severity",
 )
+@click.option(
+    "--exclude-resource", "exclude_resource", default=None,
+    help="Exclude resources matching this pattern from output (e.g. 'aws_autoscaling*')",
+)
 def watch(
     path: str,
     interval: str,
@@ -447,6 +451,7 @@ def watch(
     quiet: bool,
     workers: int | None,
     fail_on: str | None,
+    exclude_resource: str | None,
 ) -> None:
     """Continuously monitor for drift at a set interval."""
     setup_logging(verbose, quiet)
@@ -505,6 +510,26 @@ def watch(
                     )
 
             watch_cache.save()
+
+            if exclude_resource:
+                report = ScanReport(
+                    results=[
+                        WorkspaceScanResult(
+                            workspace_path=r.workspace_path,
+                            drifted_resources=[
+                                res for res in r.drifted_resources
+                                if not fnmatch.fnmatch(res.full_address, exclude_resource)
+                            ],
+                            error=r.error,
+                            scan_duration_seconds=r.scan_duration_seconds,
+                            terraform_version=r.terraform_version,
+                        )
+                        for r in report.results
+                    ],
+                    scan_started_at=report.scan_started_at,
+                    scan_finished_at=report.scan_finished_at,
+                    config_path=report.config_path,
+                )
 
             if not quiet:
                 report_table(report, console, min_severity=min_severity)
