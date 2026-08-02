@@ -735,6 +735,9 @@ severity:
     # - aws_instance.*.instance_type
     # - azurerm_virtual_machine.*.vm_size
     # - "regex:aws_(db|rds)_instance\\..*\\.instance_class"
+  medium:
+    # - aws_sqs_queue.*.visibility_timeout_seconds
+    # - aws_lambda_function.*.memory_size
 
 notifications:
   slack:
