@@ -566,6 +566,104 @@ def report(
 
 
 @main.command()
+@click.argument("baseline", metavar="BASELINE")
+@click.argument("current", metavar="CURRENT")
+@click.option(
+    "--format", "-f", "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+@click.option(
+    "--fail-on-new", is_flag=True, default=False,
+    help="Exit 1 if there is any net-new drift (useful in CI)",
+)
+def diff(baseline: str, current: str, output_format: str, fail_on_new: bool) -> None:
+    """Compare two JSON scan reports and show new, resolved, and persisting drift.
+
+    BASELINE is the path to the older JSON report.
+    CURRENT is the path to the newer JSON report.
+
+    Example:
+      tfdrift scan --format json --output baseline.json
+      tfdrift scan --format json --output current.json
+      tfdrift diff baseline.json current.json
+    """
+    from tfdrift.models import Severity
+    from tfdrift.reporters.diff import compute_diff, load_report
+    from tfdrift.reporters.output import SEVERITY_EMOJI
+
+    try:
+        baseline_report = load_report(baseline)
+    except (OSError, ValueError) as e:
+        raise click.ClickException(f"Could not read baseline report: {e}")
+
+    try:
+        current_report = load_report(current)
+    except (OSError, ValueError) as e:
+        raise click.ClickException(f"Could not read current report: {e}")
+
+    result = compute_diff(baseline_report, current_report)
+
+    if output_format == "json":
+        import json as _json
+        console.print(_json.dumps({
+            "summary": result.summary,
+            "new_drift": result.new_drift,
+            "resolved_drift": result.resolved_drift,
+            "persisting_drift": result.persisting_drift,
+        }, indent=2))
+        if fail_on_new and result.has_new_drift:
+            sys.exit(1)
+        return
+
+    # Table output
+    summary = result.summary
+    console.print()
+    console.print(
+        f"📊 Drift diff: [bold green]+{summary['new']} new[/bold green]  "
+        f"[bold red]-{summary['resolved']} resolved[/bold red]  "
+        f"[dim]{summary['persisting']} persisting[/dim]"
+    )
+    console.print()
+
+    def _print_section(title: str, resources: list, style: str) -> None:
+        if not resources:
+            return
+        from rich.table import Table
+        table = Table(title=title, show_header=True, header_style="bold", padding=(0, 1))
+        table.add_column("Severity", width=10)
+        table.add_column("Resource", min_width=35)
+        table.add_column("Action", width=10)
+        table.add_column("Workspace", min_width=25)
+        for r in resources:
+            sev = r.get("severity", "medium")
+            try:
+                sev_emoji = SEVERITY_EMOJI.get(Severity(sev), "")
+            except ValueError:
+                sev_emoji = ""
+            table.add_row(
+                f"{sev_emoji} {sev}",
+                r.get("address", "—"),
+                r.get("action", "—"),
+                r.get("_workspace", "—"),
+                style=style,
+            )
+        console.print(table)
+        console.print()
+
+    _print_section("🆕 New Drift", result.new_drift, "green")
+    _print_section("✅ Resolved Drift", result.resolved_drift, "")
+    _print_section("⏳ Persisting Drift", result.persisting_drift, "dim")
+
+    if not any([result.new_drift, result.resolved_drift, result.persisting_drift]):
+        console.print("✅ No differences between reports.", style="bold green")
+
+    if fail_on_new and result.has_new_drift:
+        sys.exit(1)
+
+
+@main.command()
 @click.option("--path", "-p", default=".", help="Directory to initialize")
 def init(path: str) -> None:
     """Create a starter .tfdrift.yml configuration file."""
