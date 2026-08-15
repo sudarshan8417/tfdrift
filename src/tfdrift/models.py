@@ -224,6 +224,10 @@ class ScanReport:
                 "severity_counts": self.severity_counts(),
                 "has_errors": len(self.errors) > 0,
                 "total_duration_seconds": round(self.total_duration_seconds, 2),
+                "cost_delta_total_monthly": (
+                    round(self.cost_delta_total, 2)
+                    if self.cost_delta_total is not None else None
+                ),
             },
             "scan_started_at": self.scan_started_at,
             "scan_finished_at": self.scan_finished_at,

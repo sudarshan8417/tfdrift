@@ -813,6 +813,14 @@ def report_html(
     sev_summary = " | ".join(
         f"{k}: {v}" for k, v in counts.items() if v > 0
     ) or "clean"
+    cost_total = report.cost_delta_total
+    cost_stat = (
+        f'<div class="stat">'
+        f'<div class="stat-value" style="color:{"#f85149" if cost_total and cost_total > 0 else "#3fb950"}">'
+        f'{format_cost_delta(cost_total)}</div>'
+        f'<div class="stat-label">Est. Monthly Cost</div>'
+        f"</div>"
+    ) if cost_total is not None else ""
 
     html = f"""\
 <!DOCTYPE html>
@@ -885,6 +893,7 @@ def report_html(
     <div class="stat-value">{sev_summary}</div>
     <div class="stat-label">Severity</div>
   </div>
+  {cost_stat}
 </div>
 <table>
 <thead>
