@@ -107,6 +107,16 @@ def remediate_workspace(
             dry_run=True,
         )
 
+    # Run pre-apply hook if configured
+    if config.pre_apply_hook:
+        hook_result = _run_hook(config.pre_apply_hook, workspace_path, "pre_apply_hook")
+        if hook_result is not None:
+            return RemediationResult(
+                workspace_path=workspace_path,
+                success=False,
+                error=hook_result,
+            )
+
     # Run terraform apply
     logger.info("Applying remediation to %s (%d resources)...", workspace_path, result.drift_count)
 
@@ -133,6 +143,11 @@ def remediate_workspace(
             )
 
         logger.info("Successfully remediated drift in %s", workspace_path)
+
+        # Run post-apply hook if configured (non-blocking — failures are logged only)
+        if config.post_apply_hook:
+            _run_hook(config.post_apply_hook, workspace_path, "post_apply_hook")
+
         return RemediationResult(
             workspace_path=workspace_path,
             success=True,
@@ -172,3 +187,26 @@ def remediate_report(
         results.append(result)
 
     return results
+
+
+def _run_hook(script: str, cwd: str, label: str) -> str | None:
+    """Run a shell hook script. Returns an error message on failure, None on success."""
+    try:
+        proc = subprocess.run(
+            script,
+            shell=True,
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            msg = f"{label} exited {proc.returncode}: {proc.stderr[:300]}"
+            logger.error(msg)
+            return msg
+        logger.info("%s completed successfully", label)
+        return None
+    except subprocess.TimeoutExpired:
+        msg = f"{label} timed out after 120 seconds"
+        logger.error(msg)
+        return msg
