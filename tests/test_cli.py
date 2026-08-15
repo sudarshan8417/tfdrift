@@ -86,6 +86,7 @@ class TestReportCsv:
         assert reader.fieldnames == [
             "scan_time", "workspace", "severity", "resource",
             "resource_type", "action", "changed_attributes", "changes_detail",
+            "owner", "cost_delta_monthly",
         ]
 
     def test_csv_row_per_resource(self):
