@@ -48,6 +48,8 @@ class NotificationConfig:
     webhook_method: str = "POST"
     pagerduty_routing_key: str | None = None
     pagerduty_min_severity: str = "critical"
+    digest_mode: bool = False
+    digest_hours: int = 24
 
 
 @dataclass
@@ -58,6 +60,8 @@ class RemediationConfig:
     allowed_environments: list[str] = field(default_factory=list)
     require_approval: bool = True
     max_changes: int = 5
+    pre_apply_hook: str | None = None
+    post_apply_hook: str | None = None
 
 
 @dataclass
@@ -199,6 +203,8 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         pagerduty_min_severity=notif_config.get("pagerduty", {}).get(
             "min_severity", "critical"
         ),
+        digest_mode=notif_config.get("digest_mode", False),
+        digest_hours=notif_config.get("digest_hours", 24),
     )
 
     remediation = RemediationConfig(
@@ -206,6 +212,8 @@ def load_config(config_path: str | None = None, base_dir: str = ".") -> TfdriftC
         allowed_environments=remed_config.get("allowed_environments", []),
         require_approval=remed_config.get("require_approval", True),
         max_changes=remed_config.get("max_changes", 5),
+        pre_apply_hook=remed_config.get("pre_apply_hook"),
+        post_apply_hook=remed_config.get("post_apply_hook"),
     )
 
     # Collect ignore rules from both config and .tfdriftignore
