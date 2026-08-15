@@ -51,6 +51,14 @@ def _init_db(conn: sqlite3.Connection) -> None:
             expires_at TEXT NOT NULL,
             active INTEGER NOT NULL DEFAULT 1
         );
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            occurred_at TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target TEXT NOT NULL,
+            actor TEXT,
+            details TEXT
+        );
     """)
 
 
@@ -334,3 +342,102 @@ def clear_suppression(resource_pattern: str, db_path: Path = DEFAULT_DB_PATH) ->
             (resource_pattern,),
         )
         return cursor.rowcount
+
+
+# ---------------------------------------------------------------------------
+# Audit log helpers
+# ---------------------------------------------------------------------------
+
+
+def log_audit_event(
+    action: str,
+    target: str,
+    details: str | None = None,
+    actor: str | None = None,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> None:
+    """Record an action in the immutable audit log."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        conn.execute(
+            "INSERT INTO audit_log (occurred_at, action, target, actor, details) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (now, action, target, actor, details),
+        )
+
+
+def query_audit_log(
+    db_path: Path = DEFAULT_DB_PATH,
+    limit: int = 50,
+    since: str | None = None,
+    action: str | None = None,
+) -> list[dict]:
+    """Return audit log entries, newest first."""
+    if not db_path.exists():
+        return []
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        conditions: list[str] = []
+        params: list[object] = []
+
+        if since:
+            cutoff = parse_since(since).isoformat()
+            conditions.append("occurred_at >= ?")
+            params.append(cutoff)
+        if action:
+            conditions.append("action = ?")
+            params.append(action)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT id, occurred_at, action, target, actor, details "
+            f"FROM audit_log {where} ORDER BY occurred_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Anomaly detection helpers
+# ---------------------------------------------------------------------------
+
+
+def get_rolling_average_drift(
+    days: int = 7,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> float | None:
+    """Return the average daily drift count over the last N days.
+
+    Returns None when there is not enough history to compute a baseline.
+    """
+    if not db_path.exists():
+        return None
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    with _connect(db_path) as conn:
+        _init_db(conn)
+        row = conn.execute(
+            "SELECT AVG(drift_count) as avg_drift FROM scans WHERE scanned_at >= ?",
+            (cutoff,),
+        ).fetchone()
+    if row is None or row["avg_drift"] is None:
+        return None
+    return float(row["avg_drift"])
+
+
+def detect_anomaly(
+    current_count: int,
+    threshold_pct: int = 30,
+    days: int = 7,
+    db_path: Path = DEFAULT_DB_PATH,
+) -> tuple[bool, float | None, float | None]:
+    """Detect if the current drift count is anomalously high.
+
+    Returns (is_anomaly, rolling_avg, pct_above_avg).
+    """
+    avg = get_rolling_average_drift(days=days, db_path=db_path)
+    if avg is None or avg == 0:
+        return False, avg, None
+    pct_above = ((current_count - avg) / avg) * 100
+    return pct_above >= threshold_pct, avg, pct_above
