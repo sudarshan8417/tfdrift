@@ -831,9 +831,10 @@ def report_html(
         f"{k}: {v}" for k, v in counts.items() if v > 0
     ) or "clean"
     cost_total = report.cost_delta_total
+    cost_color = "#f85149" if cost_total and cost_total > 0 else "#3fb950"
     cost_stat = (
         f'<div class="stat">'
-        f'<div class="stat-value" style="color:{"#f85149" if cost_total and cost_total > 0 else "#3fb950"}">'
+        f'<div class="stat-value" style="color:{cost_color}">'
         f'{format_cost_delta(cost_total)}</div>'
         f'<div class="stat-label">Est. Monthly Cost</div>'
         f"</div>"
