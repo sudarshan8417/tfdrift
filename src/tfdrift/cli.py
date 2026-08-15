@@ -191,6 +191,20 @@ def main():
     "--incremental", is_flag=True, default=False,
     help="Skip clean, unchanged workspaces using a local scan cache (~/.tfdrift/scan_cache.json)",
 )
+@click.option(
+    "--anomaly-threshold", "anomaly_threshold", default=None, type=int,
+    help=(
+        "Warn when drift count is this many percent above the 7-day rolling average. "
+        "Example: --anomaly-threshold 30 alerts when drift is 30%% above baseline."
+    ),
+)
+@click.option(
+    "--budget-threshold", "budget_threshold", default=None, type=float,
+    help=(
+        "Warn when the total estimated monthly cost delta across all drifted resources "
+        "exceeds this amount in USD. Example: --budget-threshold 500"
+    ),
+)
 def scan(
     path: str,
     output_format: str,
@@ -220,6 +234,8 @@ def scan(
     blame_days: int,
     blame_region: str | None,
     incremental: bool,
+    anomaly_threshold: int | None,
+    budget_threshold: float | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -355,6 +371,34 @@ def scan(
 
     # Save to history (silent — never break the scan over a history write failure)
     _save_history(report, config)
+
+    # Anomaly detection
+    if anomaly_threshold is not None and report.total_drift_count > 0 and not quiet:
+        db_path = Path(config.history_db) if config.history_db else DEFAULT_DB_PATH
+        is_anomaly, avg, pct = detect_anomaly(
+            current_count=report.total_drift_count,
+            threshold_pct=anomaly_threshold,
+            db_path=db_path,
+        )
+        if is_anomaly and avg is not None and pct is not None:
+            console.print(
+                f"\n[bold yellow]⚠ Anomaly detected:[/bold yellow] "
+                f"{report.total_drift_count} drift(s) is [bold]{pct:.0f}%[/bold] above "
+                f"the {7}-day rolling average of {avg:.1f}.",
+                highlight=False,
+            )
+
+    # Budget threshold check
+    if budget_threshold is not None and not quiet:
+        total_cost = report.cost_delta_total
+        if total_cost is not None and total_cost > budget_threshold:
+            from tfdrift.pricing import format_cost_delta
+            console.print(
+                f"\n[bold red]💸 Budget threshold exceeded:[/bold red] "
+                f"estimated monthly cost impact is [bold]{format_cost_delta(total_cost)}[/bold] "
+                f"(threshold: {format_cost_delta(budget_threshold)}).",
+                highlight=False,
+            )
 
     # Exit codes
     if report.has_drift:
