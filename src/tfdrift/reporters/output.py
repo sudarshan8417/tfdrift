@@ -150,12 +150,15 @@ def report_table(
         )
 
         has_costs = any(r.cost_delta_monthly is not None for r in visible)
+        has_owners = any(r.owner_tags for r in visible)
 
         table = Table(show_header=True, header_style="bold", padding=(0, 1))
         table.add_column("Severity", width=10)
         table.add_column("Resource", min_width=30)
         table.add_column("Action", width=10)
         table.add_column("Changes", min_width=40)
+        if has_owners:
+            table.add_column("Owner", min_width=15)
         if has_costs:
             table.add_column("Cost Impact", width=12, justify="right")
 
@@ -171,6 +174,15 @@ def report_table(
                 resource.action.value,
                 changed_attrs,
             ]
+            if has_owners:
+                owner = (
+                    resource.owner_tags.get("owner")
+                    or resource.owner_tags.get("Owner")
+                    or resource.owner_tags.get("team")
+                    or resource.owner_tags.get("Team")
+                    or "—"
+                )
+                row.append(Text(owner, style="cyan"))
             if has_costs:
                 delta = resource.cost_delta_monthly
                 cost_str = format_cost_delta(delta)
@@ -304,16 +316,34 @@ def report_markdown(
             f"| Scan time: {result.scan_duration_seconds:.1f}s\n"
         )
 
-        lines.append("| Severity | Resource | Action | Changes |")
-        lines.append("|----------|----------|--------|---------|")
+        ws_has_owners = any(r.owner_tags for r in visible)
+        if ws_has_owners:
+            lines.append("| Severity | Resource | Action | Changes | Owner |")
+            lines.append("|----------|----------|--------|---------|-------|")
+        else:
+            lines.append("| Severity | Resource | Action | Changes |")
+            lines.append("|----------|----------|--------|---------|")
 
         for resource in visible:
             emoji = SEVERITY_EMOJI.get(resource.severity, "")
             changed = ", ".join(_format_change(c) for c in resource.changes) or "—"
-            lines.append(
-                f"| {emoji} {resource.severity.value} | `{resource.full_address}` "
-                f"| {resource.action.value} | {changed} |"
-            )
+            if ws_has_owners:
+                owner = (
+                    resource.owner_tags.get("owner")
+                    or resource.owner_tags.get("Owner")
+                    or resource.owner_tags.get("team")
+                    or resource.owner_tags.get("Team")
+                    or "—"
+                )
+                lines.append(
+                    f"| {emoji} {resource.severity.value} | `{resource.full_address}` "
+                    f"| {resource.action.value} | {changed} | {owner} |"
+                )
+            else:
+                lines.append(
+                    f"| {emoji} {resource.severity.value} | `{resource.full_address}` "
+                    f"| {resource.action.value} | {changed} |"
+                )
 
         lines.append("")
 
