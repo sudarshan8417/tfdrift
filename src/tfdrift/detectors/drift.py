@@ -279,6 +279,8 @@ def parse_plan_changes(
         if action == ChangeAction.UPDATE and not attribute_changes:
             continue
 
+        owner_tags = _extract_owner_tags(after)
+
         resource = DriftedResource(
             address=resource_address,
             resource_type=resource_type,
@@ -286,6 +288,7 @@ def parse_plan_changes(
             action=action,
             changes=attribute_changes,
             module=module,
+            owner_tags=owner_tags,
         )
 
         # Classify severity and estimate cost impact
@@ -295,6 +298,21 @@ def parse_plan_changes(
         drifted.append(resource)
 
     return drifted
+
+
+_OWNER_TAG_KEYS = {"owner", "team", "costcenter", "cost_center", "managed_by", "contact"}
+
+
+def _extract_owner_tags(after: dict) -> dict[str, str]:
+    """Pull ownership-related tags from a resource's after-state snapshot."""
+    raw_tags = after.get("tags") or {}
+    if not isinstance(raw_tags, dict):
+        return {}
+    return {
+        k: str(v)
+        for k, v in raw_tags.items()
+        if k.lower() in _OWNER_TAG_KEYS
+    }
 
 
 def get_terraform_version(terraform_binary: str = "terraform") -> str | None:
