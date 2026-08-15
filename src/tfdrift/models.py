@@ -87,6 +87,7 @@ class DriftedResource:
     changes: list[AttributeChange] = field(default_factory=list)
     module: str | None = None
     cost_delta_monthly: float | None = None
+    owner_tags: dict[str, str] = field(default_factory=dict)
 
     @property
     def full_address(self) -> str:
@@ -102,6 +103,7 @@ class DriftedResource:
             "action": self.action.value,
             "severity": self.severity.value,
             "cost_delta_monthly": self.cost_delta_monthly,
+            "owner_tags": self.owner_tags,
             "changes": [c.to_dict() for c in self.changes],
         }
 
@@ -190,6 +192,16 @@ class ScanReport:
     @property
     def total_suppressed_count(self) -> int:
         return sum(r.suppressed_count for r in self.results)
+
+    @property
+    def cost_delta_total(self) -> float | None:
+        deltas = [
+            r.cost_delta_monthly
+            for result in self.results
+            for r in result.drifted_resources
+            if r.cost_delta_monthly is not None
+        ]
+        return sum(deltas) if deltas else None
 
     def severity_counts(self) -> dict[str, int]:
         counts: dict[str, int] = {}
