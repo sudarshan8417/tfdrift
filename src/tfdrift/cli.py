@@ -21,12 +21,15 @@ from tfdrift.detectors.drift import run_scan
 from tfdrift.history import (
     DEFAULT_DB_PATH,
     clear_suppression,
+    detect_anomaly,
     get_active_suppressions,
     get_daily_summary,
     get_repeat_offenders,
     list_scans,
     list_suppressions,
+    log_audit_event,
     parse_duration,
+    query_audit_log,
     save_scan,
     save_suppression,
 )
@@ -1256,6 +1259,12 @@ def suppress(
     if clear_pattern:
         removed = clear_suppression(clear_pattern, db_path)
         if removed:
+            log_audit_event(
+                action="suppress.clear",
+                target=clear_pattern,
+                details=f"cleared {removed} suppression(s)",
+                db_path=db_path,
+            )
             console.print(
                 f"[green]✓ Cleared {removed} suppression(s) for '{clear_pattern}'.[/green]"
             )
@@ -1308,6 +1317,12 @@ def suppress(
         raise click.BadParameter(str(e), param_hint="--duration")
 
     save_suppression(resource_pattern, duration, reason, db_path)
+    log_audit_event(
+        action="suppress.create",
+        target=resource_pattern,
+        details=f"duration={duration}" + (f", reason={reason}" if reason else ""),
+        db_path=db_path,
+    )
 
     console.print(
         f"[green]✓ Suppressing drift on [bold]{resource_pattern}[/bold] "
@@ -1319,6 +1334,84 @@ def suppress(
         "  Run [bold]tfdrift suppress --list[/bold] to see all active suppressions.",
         style="dim",
     )
+
+
+@main.command("audit-log")
+@click.option(
+    "--limit", "-n", default=50, type=int,
+    help="Maximum number of events to show (default: 50)",
+)
+@click.option(
+    "--since", default=None,
+    help="Only show events from this lookback period (e.g. 7d, 24h, 2026-01-01)",
+)
+@click.option(
+    "--action", default=None,
+    help="Filter by action type (e.g. suppress.create, suppress.clear)",
+)
+@click.option(
+    "--format", "-f", "output_format",
+    type=click.Choice(["table", "json"]),
+    default="table",
+    help="Output format",
+)
+@click.option(
+    "--db", default=None,
+    help="Path to history database (default: ~/.tfdrift/history.db)",
+)
+def audit_log(
+    limit: int,
+    since: str | None,
+    action: str | None,
+    output_format: str,
+    db: str | None,
+) -> None:
+    """Display the immutable audit event log.
+
+    Records all suppress, clear, and scan actions with timestamps.
+
+    \b
+    Examples:
+      tfdrift audit-log
+      tfdrift audit-log --since 7d --action suppress.create
+      tfdrift audit-log --format json
+    """
+    from rich.table import Table
+
+    db_path = Path(db) if db else DEFAULT_DB_PATH
+    try:
+        events = query_audit_log(db_path=db_path, limit=limit, since=since, action=action)
+    except ValueError as e:
+        raise click.BadParameter(str(e), param_hint="--since")
+
+    if not events:
+        console.print("[dim]No audit events found.[/dim]")
+        return
+
+    if output_format == "json":
+        console.print(json.dumps(events, indent=2, default=str))
+        return
+
+    title = f"Audit Log — {len(events)} event(s)"
+    if since:
+        title += f" since {since}"
+    table = Table(title=title, header_style="bold", show_lines=False)
+    table.add_column("When", style="dim")
+    table.add_column("Action")
+    table.add_column("Target", min_width=30)
+    table.add_column("Actor", style="yellow")
+    table.add_column("Details")
+
+    for ev in events:
+        when = ev["occurred_at"][:16].replace("T", " ")
+        table.add_row(
+            when,
+            ev["action"],
+            ev["target"],
+            ev["actor"] or "—",
+            ev["details"] or "—",
+        )
+    console.print(table)
 
 
 if __name__ == "__main__":
