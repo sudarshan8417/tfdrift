@@ -768,7 +768,7 @@ def report_html(
     for result in report.results:
         if result.error:
             rows_html += (
-                f'<tr class="error"><td colspan="5">'
+                f'<tr class="error"><td colspan="6">'
                 f"❌ {result.workspace_path}: {result.error}</td></tr>\n"
             )
             continue
@@ -777,13 +777,33 @@ def report_html(
                 continue
             sev = resource.severity.value
             emoji = SEVERITY_EMOJI.get(resource.severity, "")
-            changed = ", ".join(c.attribute for c in resource.changes) or "—"
+            diff_rows = ""
+            for ch in resource.changes:
+                if ch.sensitive:
+                    diff_rows += (
+                        f'<tr><td class="attr-name">{ch.attribute}</td>'
+                        f'<td class="attr-old">(sensitive)</td>'
+                        f'<td class="attr-new">(sensitive)</td></tr>'
+                    )
+                else:
+                    old_s = "" if ch.old_value is None else str(ch.old_value)
+                    new_s = "" if ch.new_value is None else str(ch.new_value)
+                    diff_rows += (
+                        f'<tr><td class="attr-name">{ch.attribute}</td>'
+                        f'<td class="attr-old">{old_s or "∅"}</td>'
+                        f'<td class="attr-new">{new_s or "∅"}</td></tr>'
+                    )
+            diff_html = (
+                f'<table class="diff-table"><tr>'
+                f'<th>Attribute</th><th>Before</th><th>After</th></tr>'
+                f"{diff_rows}</table>"
+            ) if diff_rows else "—"
             rows_html += (
                 f'<tr class="sev-{sev}">'
                 f"<td>{emoji} {sev.upper()}</td>"
                 f"<td>{resource.full_address}</td>"
                 f"<td>{resource.action.value}</td>"
-                f"<td>{changed}</td>"
+                f"<td>{diff_html}</td>"
                 f"<td>{result.workspace_path}</td>"
                 f"</tr>\n"
             )
@@ -831,6 +851,14 @@ def report_html(
   .error td {{ color: #f85149; font-style: italic; }}
   .footer {{ text-align: center; margin-top: 30px; font-size: 12px;
     color: #484f58; }}
+  .diff-table {{ width: 100%; border-collapse: collapse; font-size: 12px;
+    background: #0d1117; }}
+  .diff-table th {{ background: #161b22; color: #8b949e; padding: 3px 6px;
+    text-align: left; font-weight: normal; }}
+  .diff-table td {{ padding: 3px 6px; border-top: 1px solid #21262d; }}
+  .attr-name {{ color: #8b949e; white-space: nowrap; }}
+  .attr-old {{ color: #f85149; font-family: monospace; word-break: break-all; }}
+  .attr-new {{ color: #3fb950; font-family: monospace; word-break: break-all; }}
 </style>
 </head>
 <body>
@@ -862,11 +890,11 @@ def report_html(
 <thead>
   <tr>
     <th>Severity</th><th>Resource</th><th>Action</th>
-    <th>Changed</th><th>Workspace</th>
+    <th>Attribute Diff</th><th>Workspace</th>
   </tr>
 </thead>
 <tbody>
-{rows_html or '<tr><td colspan="5" style="text-align:center">No drift</td></tr>'}
+{rows_html or '<tr><td colspan="6" style="text-align:center">No drift</td></tr>'}
 </tbody>
 </table>
 <div class="footer">
