@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -846,6 +846,49 @@ remediation:
 # --- Internal helpers ---
 
 
+def _filter_digest(report: ScanReport, config: TfdriftConfig) -> ScanReport:
+    """In digest mode, drop resources that have already been seen recently."""
+    from datetime import timedelta
+
+    from tfdrift.history import _connect, _init_db
+
+    hours = config.notifications.digest_hours
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    db_path = DEFAULT_DB_PATH
+
+    try:
+        with _connect(db_path) as conn:
+            _init_db(conn)
+            seen_rows = conn.execute(
+                "SELECT DISTINCT resource_address FROM drifted_resources dr "
+                "JOIN scans s ON s.id = dr.scan_id WHERE s.scanned_at >= ?",
+                (cutoff,),
+            ).fetchall()
+        seen = {r["resource_address"] for r in seen_rows}
+    except Exception:
+        return report
+
+    filtered = ScanReport(
+        results=[
+            WorkspaceScanResult(
+                workspace_path=r.workspace_path,
+                drifted_resources=[
+                    res for res in r.drifted_resources
+                    if res.full_address not in seen
+                ],
+                error=r.error,
+                scan_duration_seconds=r.scan_duration_seconds,
+                terraform_version=r.terraform_version,
+            )
+            for r in report.results
+        ],
+        scan_started_at=report.scan_started_at,
+        scan_finished_at=report.scan_finished_at,
+        config_path=report.config_path,
+    )
+    return filtered
+
+
 def _send_notifications(
     report: ScanReport,  # noqa: F821
     config: TfdriftConfig,  # noqa: F821
@@ -856,6 +899,11 @@ def _send_notifications(
     """Send all configured notifications."""
     if not report.has_drift:
         return
+
+    if config.notifications.digest_mode:
+        report = _filter_digest(report, config)
+        if not report.has_drift:
+            return
 
     webhook_url = slack_webhook_override or config.notifications.slack_webhook_url
     if webhook_url:
