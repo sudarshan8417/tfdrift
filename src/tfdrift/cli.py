@@ -826,6 +826,8 @@ notifications:
   # pagerduty:
   #   routing_key: ${PAGERDUTY_ROUTING_KEY}
   #   min_severity: critical
+  # digest_mode: false        # only notify on net-new drift, skip repeat alerts
+  # digest_hours: 24          # lookback window for repeat detection
 
 remediation:
   auto_fix: false
@@ -834,6 +836,8 @@ remediation:
     - staging
   require_approval: true
   max_changes: 5
+  # pre_apply_hook: ./scripts/pre-apply.sh
+  # post_apply_hook: ./scripts/post-apply.sh
 
 # Use OpenTofu instead of Terraform:
 # terraform_binary: tofu
