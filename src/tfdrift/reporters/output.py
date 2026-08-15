@@ -380,6 +380,8 @@ def report_csv(
         "action",
         "changed_attributes",
         "changes_detail",
+        "owner",
+        "cost_delta_monthly",
     ])
 
     for result in report.results:
@@ -393,6 +395,8 @@ def report_csv(
                 "",
                 "",
                 result.error,
+                "",
+                "",
             ])
             continue
 
@@ -402,6 +406,17 @@ def report_csv(
 
             changed_attrs = "|".join(c.attribute for c in resource.changes)
             changes_detail = "|".join(_format_change(c) for c in resource.changes)
+            owner = (
+                resource.owner_tags.get("owner")
+                or resource.owner_tags.get("Owner")
+                or resource.owner_tags.get("team")
+                or resource.owner_tags.get("Team")
+                or ""
+            )
+            cost = (
+                f"{resource.cost_delta_monthly:.2f}"
+                if resource.cost_delta_monthly is not None else ""
+            )
 
             writer.writerow([
                 report.scan_started_at,
@@ -412,6 +427,8 @@ def report_csv(
                 resource.action.value,
                 changed_attrs,
                 changes_detail,
+                owner,
+                cost,
             ])
 
     csv_content = buf.getvalue()
