@@ -49,3 +49,24 @@ def _format_drift_for_prompt(
                             f"actual_now={json.dumps(change.new_value)}"
                         )
     return "\n".join(lines)
+
+
+def _build_prompt(drift_summary: str) -> str:
+    return f"""You are a Terraform infrastructure expert. The resources below have drifted — \
+someone made out-of-band changes to cloud infrastructure, causing it to diverge from \
+the Terraform configuration.
+
+Your task: generate a Terraform .tf file that corrects this drift by restoring every \
+drifted resource to its DESIRED state (the "desired" value in each attribute).
+
+Drift details:
+{drift_summary}
+
+Rules:
+- Output ONLY valid HCL — no markdown code fences, no prose outside of # comments
+- Begin with a comment block summarising the drift and what is being corrected
+- Write one complete resource block per drifted resource, using the DESIRED values
+- For attributes not listed in the drift, add a comment: # ... other attributes unchanged
+- Include a comment on each corrected attribute explaining the change
+
+Generate the remediation .tf file:"""
