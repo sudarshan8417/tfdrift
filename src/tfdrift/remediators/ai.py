@@ -70,3 +70,31 @@ Rules:
 - Include a comment on each corrected attribute explaining the change
 
 Generate the remediation .tf file:"""
+
+
+def _call_anthropic(prompt: str) -> tuple[str, str]:
+    """Call Claude via the Anthropic SDK; return (model_id, hcl_text)."""
+    try:
+        import anthropic
+    except ImportError:
+        raise ImportError(
+            "anthropic package not installed. Run: pip install 'tfdrift[ai]'"
+        )
+
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    model = "claude-opus-4-7"
+
+    with client.messages.stream(
+        model=model,
+        max_tokens=4096,
+        thinking={"type": "adaptive"},
+        messages=[{"role": "user", "content": prompt}],
+    ) as stream:
+        response = stream.get_final_message()
+
+    hcl = "\n".join(
+        block.text
+        for block in response.content
+        if block.type == "text"
+    )
+    return model, hcl.strip()
