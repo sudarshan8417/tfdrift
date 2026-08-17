@@ -36,6 +36,10 @@ dependencies = [
 aws = [
     "boto3>=1.26",
 ]
+ai = [
+    "anthropic>=0.40",
+    "openai>=1.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
