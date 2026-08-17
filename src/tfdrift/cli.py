@@ -664,6 +664,59 @@ def report(
 
 
 @main.command()
+@click.option(
+    "--path", "-p", default=".",
+    help="Root path to scan for Terraform workspaces",
+)
+@click.option(
+    "--config", "-c", "config_path",
+    default=None, help="Path to .tfdrift.yml",
+)
+@click.option(
+    "--binary", default=None,
+    help="Path to terraform/tofu binary (e.g., --binary tofu)",
+)
+@click.option(
+    "--provider",
+    type=click.Choice(["anthropic", "openai"]),
+    default=None,
+    help="AI provider (auto-detected from ANTHROPIC_API_KEY / OPENAI_API_KEY)",
+)
+@click.option(
+    "--output", "-o", "output_path",
+    default="drift-remediation.tf",
+    help="Output .tf file path (default: drift-remediation.tf)",
+)
+@click.option(
+    "--all", "fix_all", is_flag=True, default=False,
+    help="Remediate all drifted resources without prompting",
+)
+@click.option(
+    "--verbose", "-v", is_flag=True, default=False,
+    help="Enable verbose logging",
+)
+def remediate(
+    path: str,
+    config_path: str | None,
+    binary: str | None,
+    provider: str | None,
+    output_path: str,
+    fix_all: bool,
+    verbose: bool,
+) -> None:
+    """Generate an AI-powered Terraform remediation plan for detected drift.
+
+    Scans your workspaces, shows drifted resources, then asks which ones
+    to include. An AI model analyses the drift and writes a ready-to-review
+    .tf file you can apply with terraform apply.
+
+    Requires ANTHROPIC_API_KEY (uses Claude) or OPENAI_API_KEY (uses GPT-4o).
+    Install the matching package: pip install 'tfdrift[ai]'
+    """
+    pass  # implemented in subsequent commits
+
+
+@main.command()
 @click.argument("baseline", metavar="BASELINE")
 @click.argument("current", metavar="CURRENT")
 @click.option(
