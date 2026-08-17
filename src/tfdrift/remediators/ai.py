@@ -119,3 +119,17 @@ def _call_openai(prompt: str) -> tuple[str, str]:
     )
     hcl = response.choices[0].message.content or ""
     return model, hcl.strip()
+
+
+def detect_provider() -> str:
+    """Return the AI provider to use based on available env vars.
+
+    Anthropic is preferred over OpenAI when both keys are present.
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    raise EnvironmentError(
+        "No AI provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+    )
