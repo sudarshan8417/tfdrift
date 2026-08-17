@@ -713,7 +713,42 @@ def remediate(
     Requires ANTHROPIC_API_KEY (uses Claude) or OPENAI_API_KEY (uses GPT-4o).
     Install the matching package: pip install 'tfdrift[ai]'
     """
-    pass  # implemented in subsequent commits
+    from tfdrift.remediators.ai import detect_provider, generate_remediation_plan
+
+    setup_logging(verbose)
+    config = load_config(config_path=config_path, base_dir=path)
+    if binary:
+        config.terraform_binary = binary
+
+    # --- Scan ---
+    with console.status("[bold]Scanning for drift...", spinner="dots"):
+        report = run_scan(config, base_dir=path)
+
+    if not report.has_drift:
+        console.print("[bold green]✓ No drift detected.[/bold green]")
+        sys.exit(0)
+
+    # --- List drifted resources ---
+    all_resources: list[tuple[str, str]] = []  # (workspace_path, full_address)
+    for result in report.results:
+        for r in result.drifted_resources:
+            all_resources.append((result.workspace_path, r.full_address))
+
+    from tfdrift.reporters.output import SEVERITY_EMOJI
+    console.print(f"\n[bold]Found {len(all_resources)} drifted resource(s):[/bold]")
+    for result in report.results:
+        for r in result.drifted_resources:
+            idx = all_resources.index((result.workspace_path, r.full_address)) + 1
+            sev_icon = SEVERITY_EMOJI.get(r.severity, "")
+            n_changes = len(r.changes)
+            change_label = f"{n_changes} attribute change(s)" if n_changes else r.action.value
+            console.print(
+                f"  [dim]{idx}.[/dim] [bold]{r.full_address}[/bold] "
+                f"{sev_icon} [dim]{r.severity.value}[/dim] — {change_label}"
+            )
+
+    # placeholder for selection and AI call (next commits)
+    raise NotImplementedError("selection + AI call not yet wired")
 
 
 @main.command()
