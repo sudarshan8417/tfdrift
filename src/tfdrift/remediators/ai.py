@@ -130,7 +130,7 @@ def detect_provider() -> str:
         return "anthropic"
     if os.environ.get("OPENAI_API_KEY"):
         return "openai"
-    raise EnvironmentError(
+    raise OSError(
         "No AI provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
     )
 

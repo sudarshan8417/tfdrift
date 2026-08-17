@@ -777,7 +777,7 @@ def remediate(
     # --- Determine provider ---
     try:
         active_provider = provider or detect_provider()
-    except EnvironmentError as e:
+    except OSError as e:
         raise click.ClickException(str(e))
 
     provider_label = {
@@ -799,7 +799,7 @@ def remediate(
                 selected_addresses=selected_addresses,
                 provider=active_provider,
             )
-    except (ImportError, EnvironmentError) as e:
+    except (OSError, ImportError) as e:
         raise click.ClickException(str(e))
     except Exception as e:
         raise click.ClickException(f"AI call failed: {e}")
