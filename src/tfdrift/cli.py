@@ -747,8 +747,35 @@ def remediate(
                 f"{sev_icon} [dim]{r.severity.value}[/dim] — {change_label}"
             )
 
-    # placeholder for selection and AI call (next commits)
-    raise NotImplementedError("selection + AI call not yet wired")
+    # --- Select resources ---
+    selected_addresses: list[str] | None = None
+
+    if not fix_all:
+        console.print(
+            "\nWhat would you like to remediate?\n"
+            "  [bold]A[/bold] — All resources\n"
+            "  [bold]S[/bold] — Select specific resources (comma-separated numbers)\n"
+            "  [bold]Q[/bold] — Quit"
+        )
+        choice = click.prompt("Choice", default="A").strip().upper()
+
+        if choice == "Q":
+            console.print("Aborted.", style="dim")
+            sys.exit(0)
+        elif choice == "S":
+            raw = click.prompt(
+                f"Enter resource numbers (1-{len(all_resources)}, comma-separated)"
+            )
+            try:
+                indices = [int(x.strip()) - 1 for x in raw.split(",") if x.strip()]
+                selected_addresses = [all_resources[i][1] for i in indices]
+            except (ValueError, IndexError):
+                raise click.ClickException(
+                    "Invalid selection. Provide comma-separated numbers from the list."
+                )
+
+    # placeholder for AI call (next commit)
+    raise NotImplementedError("AI call not yet wired")
 
 
 @main.command()
