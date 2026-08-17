@@ -133,3 +133,56 @@ def detect_provider() -> str:
     raise EnvironmentError(
         "No AI provider configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
     )
+
+
+def generate_remediation_plan(
+    report: ScanReport,
+    selected_addresses: list[str] | None = None,
+    provider: str | None = None,
+) -> AIRemediationPlan:
+    """Generate an AI-powered remediation .tf file for drifted resources.
+
+    Args:
+        report: Completed scan report containing drift results.
+        selected_addresses: Restrict to these resource addresses; None means all.
+        provider: 'anthropic' or 'openai'. Auto-detected from env vars when None.
+    """
+    workspace_resources: list[tuple[str, list[DriftedResource]]] = []
+    total = 0
+
+    for result in report.results:
+        resources = list(result.drifted_resources)
+        if selected_addresses is not None:
+            resources = [r for r in resources if r.full_address in selected_addresses]
+        if resources:
+            workspace_resources.append((result.workspace_path, resources))
+            total += len(resources)
+
+    if not workspace_resources:
+        raise ValueError("No drifted resources selected for remediation.")
+
+    if provider is None:
+        provider = detect_provider()
+    elif provider not in ("anthropic", "openai"):
+        raise ValueError(f"Unknown provider '{provider}'. Choose 'anthropic' or 'openai'.")
+
+    drift_summary = _format_drift_for_prompt(workspace_resources)
+    prompt = _build_prompt(drift_summary)
+
+    if provider == "anthropic":
+        model, hcl = _call_anthropic(prompt)
+    else:
+        model, hcl = _call_openai(prompt)
+
+    analysis = (
+        f"Analyzed {total} drifted resource(s) across "
+        f"{len(workspace_resources)} workspace(s) using {provider} ({model})"
+    )
+
+    return AIRemediationPlan(
+        provider=provider,
+        model=model,
+        resources_analyzed=total,
+        hcl_content=hcl,
+        analysis_summary=analysis,
+    )
