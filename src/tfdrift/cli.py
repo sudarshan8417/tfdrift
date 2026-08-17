@@ -774,8 +774,49 @@ def remediate(
                     "Invalid selection. Provide comma-separated numbers from the list."
                 )
 
-    # placeholder for AI call (next commit)
-    raise NotImplementedError("AI call not yet wired")
+    # --- Determine provider ---
+    try:
+        active_provider = provider or detect_provider()
+    except EnvironmentError as e:
+        raise click.ClickException(str(e))
+
+    provider_label = {
+        "anthropic": "Claude (Anthropic)",
+        "openai": "GPT-4o (OpenAI)",
+    }.get(active_provider, active_provider)
+
+    n_selected = len(selected_addresses) if selected_addresses is not None else len(all_resources)
+    console.print(
+        f"\n[bold]Generating remediation plan for {n_selected} resource(s) "
+        f"using {provider_label}...[/bold]"
+    )
+
+    # --- Generate plan ---
+    try:
+        with console.status(f"[bold]Calling {provider_label}...", spinner="dots"):
+            plan = generate_remediation_plan(
+                report,
+                selected_addresses=selected_addresses,
+                provider=active_provider,
+            )
+    except (ImportError, EnvironmentError) as e:
+        raise click.ClickException(str(e))
+    except Exception as e:
+        raise click.ClickException(f"AI call failed: {e}")
+
+    # --- Write output ---
+    from pathlib import Path as _Path
+    _Path(output_path).write_text(plan.hcl_content + "\n")
+
+    console.print(
+        f"\n[bold green]✅ Remediation plan written to [cyan]{output_path}[/cyan][/bold green]"
+    )
+    console.print(f"   [dim]{plan.analysis_summary}[/dim]")
+    console.print(
+        f"\n   Review the file, then apply:\n"
+        f"   [bold]terraform apply {output_path}[/bold]",
+        highlight=False,
+    )
 
 
 @main.command()
