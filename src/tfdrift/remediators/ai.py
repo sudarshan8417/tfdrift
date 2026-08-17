@@ -98,3 +98,24 @@ def _call_anthropic(prompt: str) -> tuple[str, str]:
         if block.type == "text"
     )
     return model, hcl.strip()
+
+
+def _call_openai(prompt: str) -> tuple[str, str]:
+    """Call GPT-4o via the OpenAI SDK; return (model_id, hcl_text)."""
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError(
+            "openai package not installed. Run: pip install 'tfdrift[ai]'"
+        )
+
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    model = "gpt-4o"
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=4096,
+    )
+    hcl = response.choices[0].message.content or ""
+    return model, hcl.strip()
