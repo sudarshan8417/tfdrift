@@ -6,6 +6,7 @@ Handles all the ways we present drift results to the user:
 - Markdown (for PRs and reports)
 - HTML (standalone report page)
 - CSV (for spreadsheets and data pipelines)
+- SARIF (GitHub Code Scanning / static analysis results interchange format)
 - Slack webhooks
 - Microsoft Teams Incoming Webhooks (MessageCard format)
 - OpsGenie Alerts API v2
@@ -16,7 +17,9 @@ Handles all the ways we present drift results to the user:
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+import json
 import logging
 import os
 from pathlib import Path
@@ -439,6 +442,189 @@ def report_csv(
         return output_path
 
     return csv_content
+
+
+# ---------------------------------------------------------------------------
+# SARIF 2.1.0 — GitHub Code Scanning / static analysis results interchange
+# ---------------------------------------------------------------------------
+
+_SARIF_RULES: list[dict] = [
+    {
+        "id": "TFD001",
+        "severity": Severity.CRITICAL,
+        "name": "CriticalDrift",
+        "short": "Critical infrastructure drift detected",
+        "level": "error",
+    },
+    {
+        "id": "TFD002",
+        "severity": Severity.HIGH,
+        "name": "HighDrift",
+        "short": "High-severity infrastructure drift detected",
+        "level": "error",
+    },
+    {
+        "id": "TFD003",
+        "severity": Severity.MEDIUM,
+        "name": "MediumDrift",
+        "short": "Medium-severity infrastructure drift detected",
+        "level": "warning",
+    },
+    {
+        "id": "TFD004",
+        "severity": Severity.LOW,
+        "name": "LowDrift",
+        "short": "Low-severity infrastructure drift detected",
+        "level": "note",
+    },
+    {
+        "id": "TFD005",
+        "severity": Severity.INFO,
+        "name": "InfoDrift",
+        "short": "Informational infrastructure drift detected",
+        "level": "note",
+    },
+]
+
+_SEV_TO_RULE_ID: dict[Severity, str] = {r["severity"]: r["id"] for r in _SARIF_RULES}
+_SEV_TO_LEVEL: dict[Severity, str] = {r["severity"]: r["level"] for r in _SARIF_RULES}
+
+
+def report_sarif(
+    report: ScanReport,
+    output_path: str | None = None,
+    min_severity: str | None = None,
+) -> str:
+    """Generate a SARIF 2.1.0 report for GitHub Code Scanning.
+
+    Outputs one result per drifted resource. Upload the file with
+    github/codeql-action/upload-sarif to surface drift as native code
+    scanning alerts in pull requests and the Security tab.
+
+    If output_path is given, writes to file and returns the path.
+    Otherwise returns the JSON string.
+    """
+    min_sev = Severity(min_severity) if min_severity else None
+    cwd = Path.cwd()
+
+    rules = [
+        {
+            "id": rule["id"],
+            "name": rule["name"],
+            "shortDescription": {"text": rule["short"]},
+            "fullDescription": {
+                "text": (
+                    f"A Terraform-managed resource has {rule['severity'].value} drift. "
+                    "An out-of-band change to cloud infrastructure caused it to diverge "
+                    "from the desired state defined in Terraform. "
+                    "Run `tfdrift remediate` to generate a corrective .tf file."
+                )
+            },
+            "defaultConfiguration": {"level": rule["level"]},
+            "helpUri": "https://github.com/sudarshan8417/tfdrift",
+            "properties": {
+                "tags": ["terraform", "drift", rule["severity"].value],
+                "severity": rule["severity"].value,
+            },
+        }
+        for rule in _SARIF_RULES
+    ]
+
+    results: list[dict] = []
+    for ws_result in report.results:
+        if ws_result.error:
+            continue
+
+        for resource in ws_result.drifted_resources:
+            if min_sev and resource.severity < min_sev:
+                continue
+
+            rule_id = _SEV_TO_RULE_ID.get(resource.severity, "TFD003")
+            level = _SEV_TO_LEVEL.get(resource.severity, "warning")
+
+            if resource.changes:
+                parts = []
+                for c in resource.changes:
+                    if c.sensitive:
+                        parts.append(f"{c.attribute}: (sensitive)")
+                    else:
+                        old = str(c.old_value) if c.old_value is not None else "null"
+                        new = str(c.new_value) if c.new_value is not None else "null"
+                        parts.append(f"{c.attribute}: {old} → {new}")
+                message_text = (
+                    f"{resource.full_address} ({resource.action.value}): {'; '.join(parts)}"
+                )
+            else:
+                message_text = (
+                    f"{resource.full_address}: {resource.action.value} "
+                    f"({resource.severity.value} severity drift)"
+                )
+
+            ws_path = Path(ws_result.workspace_path)
+            try:
+                rel = ws_path.relative_to(cwd)
+                artifact_uri = str(rel / "main.tf").replace("\\", "/")
+            except ValueError:
+                artifact_uri = str(ws_path / "main.tf").replace("\\", "/")
+
+            # Stable fingerprint so GitHub can track findings across scans
+            fingerprint = hashlib.sha1(
+                f"{ws_result.workspace_path}:{resource.full_address}".encode()
+            ).hexdigest()
+
+            results.append({
+                "ruleId": rule_id,
+                "level": level,
+                "message": {"text": message_text},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": artifact_uri,
+                                "uriBaseId": "%SRCROOT%",
+                            },
+                            "region": {"startLine": 1},
+                        }
+                    }
+                ],
+                "partialFingerprints": {"resourceAddress/v1": fingerprint},
+                "properties": {
+                    "workspace": ws_result.workspace_path,
+                    "resource_type": resource.resource_type,
+                    "action": resource.action.value,
+                    "severity": resource.severity.value,
+                },
+            })
+
+    sarif_doc = {
+        "$schema": (
+            "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/"
+            "Schemata/sarif-schema-2.1.0.json"
+        ),
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "tfdrift",
+                        "version": "0.5.3",
+                        "informationUri": "https://github.com/sudarshan8417/tfdrift",
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }
+
+    sarif_str = json.dumps(sarif_doc, indent=2)
+
+    if output_path:
+        Path(output_path).write_text(sarif_str)
+        logger.info("SARIF report written to %s", output_path)
+        return output_path
+
+    return sarif_str
 
 
 def notify_slack(

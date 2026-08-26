@@ -46,6 +46,7 @@ from tfdrift.reporters.output import (
     report_html,
     report_json,
     report_markdown,
+    report_sarif,
     report_table,
 )
 
@@ -80,7 +81,7 @@ def main():
 )
 @click.option(
     "--format", "-f", "output_format",
-    type=click.Choice(["table", "json", "markdown", "csv"]),
+    type=click.Choice(["table", "json", "markdown", "csv", "sarif"]),
     default="table", help="Output format",
 )
 @click.option(
@@ -331,6 +332,8 @@ def scan(
         output = report_markdown(report, output_path, min_severity=min_severity)
     elif output_format == "csv":
         output = report_csv(report, output_path, min_severity=min_severity)
+    elif output_format == "sarif":
+        output = report_sarif(report, output_path, min_severity=min_severity)
     else:
         output = None
 
@@ -343,7 +346,7 @@ def scan(
                     f"— run [bold]tfdrift suppress --list[/bold] to review.[/dim]"
                 )
         elif output is not None and not output_path:
-            console.print(output)
+            print(output)
         if output_path and output_format != "table":
             console.print(f"📄 Report written to {output_path}")
 

@@ -1,4 +1,6 @@
-# Example: Run tfdrift on a schedule to detect drift
+# Example: Run tfdrift on a schedule to detect drift.
+# SARIF output is uploaded to GitHub Code Scanning so drift surfaces as
+# native security alerts in pull requests and the Security tab.
 name: Terraform Drift Check
 on:
   schedule:
@@ -8,6 +10,9 @@ on:
 jobs:
   drift-check:
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # required for upload-sarif
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
@@ -15,12 +20,30 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install tfdrift
-      - run: tfdrift scan --format json --output drift-report.json
+
+      # Scan and emit SARIF — drift appears as Code Scanning alerts
+      - name: Scan for drift
+        run: tfdrift scan --format sarif --output results.sarif
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        continue-on-error: true   # upload SARIF even when drift is found (exit 1)
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+      # Also keep the raw JSON for artifact download / downstream tooling
+      - name: Re-scan to JSON artifact
+        run: tfdrift scan --format json --output drift-report.json --quiet
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        continue-on-error: true
+
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
           name: drift-report
           path: drift-report.json

@@ -1,6 +1,7 @@
 """Tests for CLI behavior."""
 import csv
 import io
+import json
 from unittest.mock import patch
 
 from click.testing import CliRunner
@@ -14,7 +15,7 @@ from tfdrift.models import (
     Severity,
     WorkspaceScanResult,
 )
-from tfdrift.reporters.output import report_csv, report_github_actions
+from tfdrift.reporters.output import report_csv, report_github_actions, report_sarif
 
 
 def test_version():
@@ -412,3 +413,141 @@ class TestDiffCLI:
         parsed = _json.loads(result.output)
         assert "summary" in parsed
         assert "new_drift" in parsed
+
+
+class TestReportSarif:
+    """Unit tests for the SARIF 2.1.0 reporter."""
+
+    def test_sarif_valid_structure(self):
+        report = _make_report_with_drift()
+        sarif_str = report_sarif(report)
+        doc = json.loads(sarif_str)
+        assert doc["version"] == "2.1.0"
+        assert len(doc["runs"]) == 1
+        run = doc["runs"][0]
+        assert run["tool"]["driver"]["name"] == "tfdrift"
+        assert isinstance(run["results"], list)
+        assert isinstance(run["tool"]["driver"]["rules"], list)
+
+    def test_sarif_result_count_matches_resources(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        assert len(doc["runs"][0]["results"]) == 2
+
+    def test_sarif_high_severity_maps_to_error_level(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        results = doc["runs"][0]["results"]
+        high_result = next(
+            r for r in results if "aws_instance.web" in r["message"]["text"]
+        )
+        assert high_result["level"] == "error"
+        assert high_result["ruleId"] == "TFD002"
+
+    def test_sarif_medium_severity_maps_to_warning_level(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        results = doc["runs"][0]["results"]
+        medium_result = next(
+            r for r in results if "aws_s3_bucket.data" in r["message"]["text"]
+        )
+        assert medium_result["level"] == "warning"
+        assert medium_result["ruleId"] == "TFD003"
+
+    def test_sarif_message_contains_attribute_change(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        results = doc["runs"][0]["results"]
+        instance_result = next(
+            r for r in results if "aws_instance.web" in r["message"]["text"]
+        )
+        assert "instance_type" in instance_result["message"]["text"]
+        assert "t3.micro" in instance_result["message"]["text"]
+        assert "t3.large" in instance_result["message"]["text"]
+
+    def test_sarif_location_points_to_main_tf(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        loc = doc["runs"][0]["results"][0]["locations"][0]
+        assert loc["physicalLocation"]["artifactLocation"]["uri"].endswith("main.tf")
+        assert loc["physicalLocation"]["artifactLocation"]["uriBaseId"] == "%SRCROOT%"
+        assert loc["physicalLocation"]["region"]["startLine"] == 1
+
+    def test_sarif_has_partial_fingerprints(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        for result in doc["runs"][0]["results"]:
+            assert "resourceAddress/v1" in result["partialFingerprints"]
+
+    def test_sarif_five_rules_defined(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        rules = doc["runs"][0]["tool"]["driver"]["rules"]
+        assert len(rules) == 5
+        rule_ids = {r["id"] for r in rules}
+        assert rule_ids == {"TFD001", "TFD002", "TFD003", "TFD004", "TFD005"}
+
+    def test_sarif_min_severity_filters_results(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report, min_severity="high"))
+        results = doc["runs"][0]["results"]
+        assert len(results) == 1
+        assert "aws_instance.web" in results[0]["message"]["text"]
+
+    def test_sarif_no_drift_empty_results(self):
+        report = ScanReport(results=[WorkspaceScanResult(workspace_path="/tmp/clean")])
+        doc = json.loads(report_sarif(report))
+        assert doc["runs"][0]["results"] == []
+
+    def test_sarif_writes_to_file(self, tmp_path):
+        report = _make_report_with_drift()
+        out = tmp_path / "results.sarif"
+        ret = report_sarif(report, output_path=str(out))
+        assert ret == str(out)
+        assert out.exists()
+        doc = json.loads(out.read_text())
+        assert doc["version"] == "2.1.0"
+
+    def test_sarif_errors_skipped(self):
+        report = ScanReport(
+            results=[
+                WorkspaceScanResult(
+                    workspace_path="/tmp/broken",
+                    error="terraform init failed",
+                )
+            ]
+        )
+        doc = json.loads(report_sarif(report))
+        assert doc["runs"][0]["results"] == []
+
+    def test_sarif_properties_bag(self):
+        report = _make_report_with_drift()
+        doc = json.loads(report_sarif(report))
+        props = doc["runs"][0]["results"][0]["properties"]
+        assert props["resource_type"] == "aws_instance"
+        assert props["action"] == "update"
+        assert props["severity"] == "high"
+
+    def test_sarif_cli_flag(self):
+        report = _make_report_with_drift()
+        runner = CliRunner()
+        with patch("tfdrift.cli.run_scan", return_value=report), \
+             patch("tfdrift.cli._save_history"):
+            result = runner.invoke(main, ["scan", "--path", "/tmp", "--format", "sarif"])
+        doc = json.loads(result.output)
+        assert doc["version"] == "2.1.0"
+        assert len(doc["runs"][0]["results"]) == 2
+
+    def test_sarif_cli_writes_to_file(self, tmp_path):
+        report = _make_report_with_drift()
+        out = tmp_path / "results.sarif"
+        runner = CliRunner()
+        with patch("tfdrift.cli.run_scan", return_value=report), \
+             patch("tfdrift.cli._save_history"):
+            result = runner.invoke(
+                main,
+                ["scan", "--path", "/tmp", "--format", "sarif", "--output", str(out)],
+            )
+        assert out.exists()
+        doc = json.loads(out.read_text())
+        assert doc["version"] == "2.1.0"

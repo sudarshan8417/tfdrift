@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- SARIF 2.1.0 output format (`--format sarif`) for `tfdrift scan` — upload the result
+  with `github/codeql-action/upload-sarif` to surface drift as native GitHub Code Scanning
+  alerts in pull requests and the Security tab
+- Five severity-mapped SARIF rules (TFD001–TFD005): critical/high emit `error` level,
+  medium emits `warning`, low/info emit `note`
+- `partialFingerprints` on each result for stable cross-scan deduplication in GitHub
+- `--format sarif` respected by `--output` to write `results.sarif` directly to disk
+
 ## [0.5.1] - 2026-08-02
 
 ### Added
