@@ -1,0 +1,150 @@
+name: 'tfdrift'
+description: >
+  Detect Terraform infrastructure drift with PR annotations, job step summaries,
+  and GitHub Code Scanning (SARIF) support. Zero config for most repos.
+author: 'Sudarshan Bhagvanthakur'
+branding:
+  icon: 'alert-triangle'
+  color: 'orange'
+
+inputs:
+  path:
+    description: 'Root directory to scan for Terraform workspaces.'
+    required: false
+    default: '.'
+  min-severity:
+    description: 'Only report drift at or above this level: info, low, medium, high, critical.'
+    required: false
+    default: ''
+  fail-on:
+    description: >
+      Exit 1 when drift meets or exceeds this severity (info/low/medium/high/critical).
+      Omit to fail on any drift.
+    required: false
+    default: ''
+  sarif-output:
+    description: >
+      Write a SARIF 2.1.0 report to this path for GitHub Code Scanning upload.
+      Example: results/tfdrift.sarif
+    required: false
+    default: ''
+  json-output:
+    description: 'Write the full JSON scan report to this path.'
+    required: false
+    default: ''
+  exclude-resource:
+    description: 'Exclude resources matching this fnmatch pattern (e.g. "aws_autoscaling*").'
+    required: false
+    default: ''
+  binary:
+    description: 'Path to terraform or tofu binary. Defaults to terraform on PATH.'
+    required: false
+    default: ''
+  workers:
+    description: 'Number of parallel workspace scan workers.'
+    required: false
+    default: '4'
+  tfdrift-version:
+    description: 'tfdrift version to install from PyPI (e.g. "0.5.3"). Defaults to latest.'
+    required: false
+    default: ''
+  slack-webhook:
+    description: 'Slack Incoming Webhook URL for drift notifications.'
+    required: false
+    default: ''
+  opsgenie-key:
+    description: 'OpsGenie API key for alert notifications.'
+    required: false
+    default: ''
+  config:
+    description: 'Path to a .tfdrift.yml config file.'
+    required: false
+    default: ''
+
+outputs:
+  drift-count:
+    description: 'Total number of drifted resources detected.'
+    value: ${{ steps.parse.outputs.drift_count }}
+  has-drift:
+    description: '"true" if any drift was detected, "false" otherwise.'
+    value: ${{ steps.parse.outputs.has_drift }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install tfdrift
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.tfdrift-version }}" ]; then
+          pip install --quiet "tfdrift==${{ inputs.tfdrift-version }}"
+        else
+          pip install --quiet tfdrift
+        fi
+
+    - name: Scan for drift
+      id: scan
+      shell: bash
+      run: |
+        set +e
+
+        # JSON always written — used for output parsing; also exposed at json-output if set
+        JSON_PATH="${{ inputs.json-output }}"
+        if [ -z "$JSON_PATH" ]; then
+          JSON_PATH="${RUNNER_TEMP}/tfdrift_report.json"
+        fi
+
+        ARGS=(
+          --path      "${{ inputs.path }}"
+          --format    json
+          --output    "$JSON_PATH"
+          --workers   "${{ inputs.workers }}"
+        )
+
+        [ -n "${{ inputs.min-severity }}" ]     && ARGS+=(--min-severity      "${{ inputs.min-severity }}")
+        [ -n "${{ inputs.fail-on }}" ]           && ARGS+=(--fail-on            "${{ inputs.fail-on }}")
+        [ -n "${{ inputs.exclude-resource }}" ]  && ARGS+=(--exclude-resource   "${{ inputs.exclude-resource }}")
+        [ -n "${{ inputs.binary }}" ]            && ARGS+=(--binary             "${{ inputs.binary }}")
+        [ -n "${{ inputs.config }}" ]            && ARGS+=(--config             "${{ inputs.config }}")
+        [ -n "${{ inputs.slack-webhook }}" ]     && ARGS+=(--slack-webhook      "${{ inputs.slack-webhook }}")
+        [ -n "${{ inputs.opsgenie-key }}" ]      && ARGS+=(--opsgenie-key       "${{ inputs.opsgenie-key }}")
+        [ -n "${{ inputs.sarif-output }}" ]      && ARGS+=(--sarif-output       "${{ inputs.sarif-output }}")
+
+        tfdrift scan "${ARGS[@]}"
+        SCAN_EXIT=$?
+
+        echo "json_path=$JSON_PATH" >> "$GITHUB_OUTPUT"
+        echo "scan_exit=$SCAN_EXIT" >> "$GITHUB_OUTPUT"
+
+    - name: Parse outputs
+      id: parse
+      if: always()
+      shell: bash
+      run: |
+        JSON_PATH="${{ steps.scan.outputs.json_path }}"
+        DRIFT_COUNT=0
+        if [ -f "$JSON_PATH" ]; then
+          DRIFT_COUNT=$(python3 - "$JSON_PATH" <<'EOF'
+        import json, sys
+        try:
+            data = json.load(open(sys.argv[1]))
+            print(data["summary"]["total_drift_count"])
+        except Exception:
+            print(0)
+        EOF
+        )
+        fi
+        echo "drift_count=$DRIFT_COUNT" >> "$GITHUB_OUTPUT"
+        if [ "$DRIFT_COUNT" -gt 0 ]; then
+          echo "has_drift=true"  >> "$GITHUB_OUTPUT"
+        else
+          echo "has_drift=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Propagate exit code
+      shell: bash
+      run: exit "${{ steps.scan.outputs.scan_exit }}"

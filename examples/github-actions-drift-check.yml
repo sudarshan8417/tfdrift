@@ -1,49 +1,58 @@
-# Example: Run tfdrift on a schedule to detect drift.
-# SARIF output is uploaded to GitHub Code Scanning so drift surfaces as
-# native security alerts in pull requests and the Security tab.
+# Scheduled drift detection using the tfdrift GitHub Actions action.
+# Runs every 6 hours, posts annotations to PRs, and uploads drift as
+# Code Scanning alerts in the Security tab.
+#
+# Required secrets:
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  — read-only AWS credentials
+#   SLACK_WEBHOOK                              — optional Slack notifications
 name: Terraform Drift Check
+
 on:
   schedule:
     - cron: '0 */6 * * *'
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  drift-check:
+  drift:
     runs-on: ubuntu-latest
     permissions:
-      security-events: write   # required for upload-sarif
       contents: read
+      security-events: write   # required for Code Scanning upload
+
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install tfdrift
 
-      # Scan and emit SARIF — drift appears as Code Scanning alerts
-      - name: Scan for drift
-        run: tfdrift scan --format sarif --output results.sarif
+      - name: Detect drift
+        id: drift
+        uses: sudarshan8417/tfdrift@v1
+        with:
+          path: .
+          min-severity: low
+          fail-on: high
+          sarif-output: results/tfdrift.sarif
+          json-output: results/drift-report.json
+          slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        continue-on-error: true   # upload SARIF even when drift is found (exit 1)
 
       - name: Upload SARIF to GitHub Code Scanning
+        if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: results.sarif
+          sarif_file: results/tfdrift.sarif
 
-      # Also keep the raw JSON for artifact download / downstream tooling
-      - name: Re-scan to JSON artifact
-        run: tfdrift scan --format json --output drift-report.json --quiet
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        continue-on-error: true
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload drift report artifact
         if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: drift-report
-          path: drift-report.json
+          path: results/drift-report.json
+
+      - name: Print drift summary
+        if: always()
+        run: |
+          echo "Drift detected: ${{ steps.drift.outputs.has-drift }}"
+          echo "Drifted resources: ${{ steps.drift.outputs.drift-count }}"

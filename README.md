@@ -220,34 +220,77 @@ aws_ecs_service.*.desired_count
 
 ### GitHub Actions
 
+The fastest way to add drift detection: one `uses:` line, no Python setup required.
+
 ```yaml
 # .github/workflows/drift-check.yml
 name: Terraform Drift Check
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours
+    - cron: '0 */6 * * *'
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  drift-check:
+  drift:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # only needed for sarif-output
+
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - uses: actions/setup-python@v5
+
+      - name: Detect drift
+        id: drift
+        uses: sudarshan8417/tfdrift@v1
         with:
-          python-version: '3.11'
-      - run: pip install tfdrift
-      - run: tfdrift scan --format json --output drift-report.json --min-severity low
+          path: .
+          min-severity: low
+          fail-on: high
+          sarif-output: results/tfdrift.sarif
+          json-output: results/drift-report.json
+          slack-webhook: ${{ secrets.SLACK_WEBHOOK }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      - uses: actions/upload-artifact@v4
-        if: failure()
+
+      - name: Upload to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          name: drift-report
-          path: drift-report.json
+          sarif_file: results/tfdrift.sarif
+
+      - run: |
+          echo "Drifted resources: ${{ steps.drift.outputs.drift-count }}"
 ```
+
+**Action inputs**
+
+| Input | Default | Description |
+|---|---|---|
+| `path` | `.` | Root directory to scan |
+| `min-severity` | `info` | Minimum severity to report |
+| `fail-on` | _(any drift)_ | Severity threshold to exit 1 |
+| `sarif-output` | — | Path for SARIF file (Code Scanning) |
+| `json-output` | — | Path for JSON report |
+| `exclude-resource` | — | fnmatch pattern to skip resources |
+| `binary` | `terraform` | Path to terraform or tofu |
+| `workers` | `4` | Parallel scan workers |
+| `tfdrift-version` | latest | Pin a specific PyPI version |
+| `slack-webhook` | — | Slack Incoming Webhook URL |
+| `opsgenie-key` | — | OpsGenie API key |
+| `config` | — | Path to `.tfdrift.yml` |
+
+**Action outputs**
+
+| Output | Description |
+|---|---|
+| `drift-count` | Total drifted resources detected |
+| `has-drift` | `"true"` / `"false"` |
+
+See [`examples/`](examples/) for a PR gate workflow and a scheduled scan with Code Scanning.
 
 ### GitLab CI
 

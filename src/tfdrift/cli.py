@@ -206,6 +206,14 @@ def main():
         "exceeds this amount in USD. Example: --budget-threshold 500"
     ),
 )
+@click.option(
+    "--sarif-output", "sarif_output", default=None,
+    help=(
+        "Write a SARIF 2.1.0 report to this path alongside the primary output format. "
+        "Useful in CI to produce both a JSON report and a SARIF file for Code Scanning "
+        "in one scan run. Example: --sarif-output results.sarif"
+    ),
+)
 def scan(
     path: str,
     output_format: str,
@@ -237,6 +245,7 @@ def scan(
     incremental: bool,
     anomaly_threshold: int | None,
     budget_threshold: float | None,
+    sarif_output: str | None,
 ) -> None:
     """Scan Terraform workspaces for infrastructure drift."""
     setup_logging(verbose, quiet)
@@ -336,6 +345,14 @@ def scan(
         output = report_sarif(report, output_path, min_severity=min_severity)
     else:
         output = None
+
+    # Secondary SARIF output — written alongside the primary format in one scan run.
+    # Lets CI produce JSON (for artifact/parsing) + SARIF (for Code Scanning) without
+    # running terraform plan twice.
+    if sarif_output:
+        report_sarif(report, sarif_output, min_severity=min_severity)
+        if not quiet:
+            console.print(f"📄 SARIF report written to {sarif_output}")
 
     if not quiet:
         if output_format == "table":
