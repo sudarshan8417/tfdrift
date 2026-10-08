@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-10-08
+
+### Added
+- GitHub Actions Marketplace action (`action.yml`) — drop `uses: sudarshan8417/tfdrift@v1`
+  into any workflow; handles Python setup, install, scan, PR annotations, step summary,
+  and SARIF upload in one step with no boilerplate
+- `--sarif-output` flag on `tfdrift scan` — write a SARIF 2.1.0 file alongside the primary
+  output format in a single scan run, avoiding a redundant `terraform plan` invocation in CI
+- Action exposes `drift-count` and `has-drift` outputs for conditional downstream steps
+- Two ready-to-use example workflows: scheduled scan with Code Scanning upload and a PR gate
+  that blocks merges on high+ severity drift
+
+## [0.5.3] - 2026-09-14
+
 ### Added
 - SARIF 2.1.0 output format (`--format sarif`) for `tfdrift scan` — upload the result
   with `github/codeql-action/upload-sarif` to surface drift as native GitHub Code Scanning
