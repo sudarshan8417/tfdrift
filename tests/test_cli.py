@@ -533,7 +533,11 @@ class TestReportSarif:
         runner = CliRunner()
         with patch("tfdrift.cli.run_scan", return_value=report), \
              patch("tfdrift.cli._save_history"):
-            result = runner.invoke(main, ["scan", "--path", "/tmp", "--format", "sarif"])
+            result = runner.invoke(
+                main,
+                ["scan", "--path", "/tmp", "--format", "sarif"],
+                env={"GITHUB_ACTIONS": ""},
+            )
         doc = json.loads(result.output)
         assert doc["version"] == "2.1.0"
         assert len(doc["runs"][0]["results"]) == 2
