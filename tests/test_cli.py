@@ -544,7 +544,7 @@ class TestReportSarif:
         runner = CliRunner()
         with patch("tfdrift.cli.run_scan", return_value=report), \
              patch("tfdrift.cli._save_history"):
-            result = runner.invoke(
+            runner.invoke(
                 main,
                 ["scan", "--path", "/tmp", "--format", "sarif", "--output", str(out)],
             )
