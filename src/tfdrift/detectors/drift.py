@@ -17,6 +17,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 from tfdrift.cache import WorkspaceCache
 from tfdrift.config import TfdriftConfig
@@ -211,6 +212,43 @@ def run_terraform_plan(
             plan_file.unlink()
 
 
+def _flatten_changes(
+    before: dict,
+    after: dict,
+    prefix: str = "",
+) -> list[tuple[str, Any, Any]]:
+    """Diff two attribute dicts, emitting each changed key and its nested leaf paths.
+
+    The top-level key is always emitted for backward compatibility with existing
+    patterns.  When both sides are dicts, changed sub-keys are also emitted so
+    fine-grained patterns can target deep paths such as
+    ``settings.ip_configuration.authorized_networks``.
+    """
+    results: list[tuple[str, Any, Any]] = []
+    for key in sorted(set(before) | set(after)):
+        old = before.get(key)
+        new = after.get(key)
+        if old == new:
+            continue
+        path = f"{prefix}.{key}" if prefix else key
+        results.append((path, old, new))
+        if isinstance(old, dict) and isinstance(new, dict):
+            results.extend(_flatten_changes(old, new, path))
+    return results
+
+
+def _is_sensitive(after_sensitive: Any, path: str) -> bool:
+    """Check whether a (potentially nested) attribute path is marked sensitive."""
+    if not isinstance(after_sensitive, dict):
+        return False
+    current: Any = after_sensitive
+    for part in path.split("."):
+        if not isinstance(current, dict):
+            return False
+        current = current.get(part, False)
+    return bool(current)
+
+
 def parse_plan_changes(
     plan_json: dict,
     classifier: SeverityClassifier,
@@ -248,28 +286,17 @@ def parse_plan_changes(
 
         attribute_changes = []
         if isinstance(before, dict) and isinstance(after, dict):
-            all_keys = set(before.keys()) | set(after.keys())
-            for key in sorted(all_keys):
-                old_val = before.get(key)
-                new_val = after.get(key)
-                if old_val != new_val:
-                    is_sensitive = (
-                        isinstance(after_sensitive, dict)
-                        and after_sensitive.get(key, False)
+            for attr_path, old_val, new_val in _flatten_changes(before, after):
+                if config.should_ignore(resource_address, attr_path):
+                    continue
+                attribute_changes.append(
+                    AttributeChange(
+                        attribute=attr_path,
+                        old_value=old_val,
+                        new_value=new_val,
+                        sensitive=_is_sensitive(after_sensitive, attr_path),
                     )
-
-                    # Check ignore rules
-                    if config.should_ignore(resource_address, key):
-                        continue
-
-                    attribute_changes.append(
-                        AttributeChange(
-                            attribute=key,
-                            old_value=old_val,
-                            new_value=new_val,
-                            sensitive=is_sensitive,
-                        )
-                    )
+                )
 
         # Check if the entire resource is ignored
         if config.should_ignore(resource_address):

@@ -22,40 +22,58 @@ _REGEX_PREFIX = "regex:"
 
 # Default severity rules — security-critical resources and attributes
 DEFAULT_CRITICAL_PATTERNS = [
-    # AWS
+    # AWS — IAM / access control
     "aws_security_group.*.ingress",
     "aws_security_group.*.egress",
     "aws_security_group_rule.*",
     "aws_iam_policy.*.policy",
     "aws_iam_role.*.assume_role_policy",
     "aws_iam_role_policy.*.policy",
+    "aws_iam_role_policy_attachment.*",
     "aws_iam_user_policy.*.policy",
+    # AWS — S3 public access
     "aws_s3_bucket_public_access_block.*",
     "aws_s3_bucket_policy.*.policy",
-    "aws_kms_key.*.key_policy",
+    "aws_s3_bucket_acl.*.acl",
+    # AWS — KMS: attribute is 'policy' in all provider versions
+    "aws_kms_key.*.policy",
+    # AWS — network
     "aws_vpc.*.enable_dns_hostnames",
     "aws_network_acl_rule.*",
-    # RDS — losing deletion protection or backups on a prod DB is catastrophic
+    # AWS — SQS / SNS policies
+    "aws_sqs_queue_policy.*.policy",
+    "aws_sns_topic_policy.*.policy",
+    # AWS — audit / detective controls
+    "aws_cloudtrail.*.enable_logging",
+    "aws_guardduty_detector.*.enable",
+    # AWS — RDS: losing deletion protection is catastrophic; backup loss is High (see below)
     "aws_db_instance.*.deletion_protection",
-    "aws_db_instance.*.backup_retention_period",
     "aws_rds_cluster.*.deletion_protection",
-    "aws_rds_cluster.*.backup_retention_period",
     # Azure
     "azurerm_network_security_group.*.security_rule",
     "azurerm_network_security_rule.*",
     "azurerm_role_assignment.*",
     "azurerm_role_definition.*.permissions",
     "azurerm_key_vault_access_policy.*",
+    # azurerm_storage_account: support both AzureRM 2.x and 3.x attribute names
     "azurerm_storage_account.*.allow_blob_public_access",
+    "azurerm_storage_account.*.allow_nested_items_to_be_public",
     "azurerm_storage_account.*.network_rules",
-    # GCP
+    "azurerm_storage_account_network_rules.*.default_action",
+    # GCP — IAM (both iam_binding and iam_member variants)
     "google_compute_firewall.*.allow",
     "google_compute_firewall.*.deny",
     "google_compute_firewall.*.source_ranges",
     "google_project_iam_binding.*",
     "google_project_iam_member.*",
     "google_storage_bucket_iam_binding.*",
+    "google_storage_bucket_iam_member.*",
     "google_kms_crypto_key_iam_binding.*",
+    "google_kms_crypto_key_iam_member.*",
+    "google_service_account_iam_member.*",
+    "google_service_account_iam_binding.*",
+    # GCP — nested: SQL authorized networks opened to 0.0.0.0/0
+    "google_sql_database_instance.*.settings.ip_configuration.authorized_networks",
 ]
 
 DEFAULT_HIGH_PATTERNS = [
@@ -63,6 +81,8 @@ DEFAULT_HIGH_PATTERNS = [
     "aws_instance.*.instance_type",
     "aws_instance.*.ami",
     "aws_instance.*.user_data",
+    # AWS EC2 — IMDSv2 enforcement (nested attribute path after plan JSON flattening)
+    "aws_instance.*.metadata_options.http_tokens",
     # AWS RDS
     "aws_rds_instance.*.engine_version",
     "aws_rds_instance.*.publicly_accessible",
@@ -70,13 +90,20 @@ DEFAULT_HIGH_PATTERNS = [
     "aws_db_instance.*.multi_az",
     "aws_db_instance.*.publicly_accessible",
     "aws_db_instance.*.storage_encrypted",
+    # RDS backup loss is a persistence risk (High), not a security perimeter breach (Critical)
+    "aws_db_instance.*.backup_retention_period",
+    "aws_rds_cluster.*.backup_retention_period",
     "aws_rds_cluster.*.engine_version",
-    # AWS S3
+    # AWS S3 — encryption
     "aws_s3_bucket.*.versioning",
     "aws_s3_bucket.*.server_side_encryption_configuration",
+    "aws_s3_bucket_server_side_encryption_configuration.*",
+    # AWS EBS encryption
+    "aws_ebs_encryption_by_default.*.enabled",
     # AWS Lambda
     "aws_lambda_function.*.runtime",
     "aws_lambda_function.*.environment",
+    "aws_lambda_function_url.*.authorization_type",
     # AWS ECS
     "aws_ecs_task_definition.*.container_definitions",
     "aws_ecs_task_definition.*.task_role_arn",
@@ -85,23 +112,58 @@ DEFAULT_HIGH_PATTERNS = [
     "aws_eks_cluster.*.version",
     "aws_eks_node_group.*.instance_types",
     "aws_eks_node_group.*.ami_type",
-    # AWS Other
+    # AWS load balancer / TLS
+    "aws_lb_listener.*.ssl_policy",
+    # AWS CloudFront — top-level key and nested minimum_protocol_version
     "aws_cloudfront_distribution.*.viewer_certificate",
+    "aws_cloudfront_distribution.*.viewer_certificate.minimum_protocol_version",
+    # AWS ElastiCache
     "aws_elasticache_cluster.*.engine_version",
     "aws_elasticache_replication_group.*.automatic_failover_enabled",
-    # Azure
+    # Azure — VM sizes
     "azurerm_virtual_machine.*.vm_size",
     "azurerm_linux_virtual_machine.*.size",
     "azurerm_windows_virtual_machine.*.size",
+    # Azure — SQL
     "azurerm_sql_server.*.administrator_login_password",
+    "azurerm_mssql_server.*",
+    "azurerm_mssql_firewall_rule.*",
+    # Azure — storage TLS: support both AzureRM 2.x and 3.x attribute names
     "azurerm_storage_account.*.enable_https_traffic_only",
+    "azurerm_storage_account.*.https_traffic_only_enabled",
+    "azurerm_storage_account.*.min_tls_version",
+    # Azure — key vault
+    "azurerm_key_vault.*.purge_protection_enabled",
+    # Azure — web / app service
+    "azurerm_linux_web_app.*.https_only",
+    "azurerm_windows_web_app.*.https_only",
+    # Azure — AKS
     "azurerm_kubernetes_cluster.*.kubernetes_version",
-    # GCP
+    "azurerm_kubernetes_cluster.*.api_server_access_profile",
+    # Azure — security & compliance
+    "azurerm_security_center_subscription_pricing.*.tier",
+    "azurerm_postgresql_flexible_server_firewall_rule.*",
+    "azurerm_monitor_diagnostic_setting.*.enabled_log",
+    "azurerm_linux_virtual_machine.*.disable_password_authentication",
+    # GCP — compute
     "google_compute_instance.*.machine_type",
     "google_compute_instance.*.boot_disk",
+    # GCP — compute nested attributes
+    "google_compute_instance.*.service_account.scopes",
+    "google_compute_firewall.*.disabled",
+    "google_compute_subnetwork.*.log_config",
+    "google_compute_project_metadata_item.*",
+    # GCP — SQL
     "google_sql_database_instance.*.database_version",
+    "google_sql_database_instance.*.settings.ip_configuration.ssl_mode",
+    # GCP — GKE
     "google_container_cluster.*.min_master_version",
+    "google_container_cluster.*.master_authorized_networks_config",
+    # GCP — storage
     "google_storage_bucket.*.uniform_bucket_level_access",
+    "google_storage_bucket.*.public_access_prevention",
+    # GCP — KMS
+    "google_kms_crypto_key.*.rotation_period",
 ]
 
 DEFAULT_MEDIUM_PATTERNS = [

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-10-19
+
+### Added
+- **~30 new severity patterns** covering previously missed AWS, Azure, and GCP resources:
+  AWS: `aws_iam_role_policy_attachment`, `aws_s3_bucket_acl`, `aws_cloudtrail`, `aws_guardduty_detector`,
+  `aws_sns_topic_policy`, `aws_sqs_queue_policy`, `aws_lambda_function_url`, `aws_lb_listener`,
+  `aws_s3_bucket_server_side_encryption_configuration`, `aws_ebs_encryption_by_default`;
+  Azure: `azurerm_mssql_server`, `azurerm_mssql_firewall_rule`, `azurerm_linux_web_app`,
+  `azurerm_key_vault` (purge_protection), `azurerm_security_center_subscription_pricing`,
+  `azurerm_postgresql_flexible_server_firewall_rule`, `azurerm_monitor_diagnostic_setting`,
+  `azurerm_storage_account_network_rules`, `azurerm_kubernetes_cluster` (api_server_access_profile),
+  `azurerm_linux_virtual_machine` (disable_password_authentication);
+  GCP: `google_storage_bucket_iam_member`, `google_kms_crypto_key_iam_member`,
+  `google_service_account_iam_member`, `google_kms_crypto_key` (rotation_period),
+  `google_compute_project_metadata_item`, `google_compute_firewall` (disabled),
+  `google_compute_subnetwork` (log_config), `google_storage_bucket` (public_access_prevention),
+  `google_container_cluster` (master_authorized_networks_config)
+- **Nested attribute detection** in `parse_plan_changes` — the plan diff now walks into nested
+  dicts and emits dot-separated paths (e.g. `settings.ip_configuration.authorized_networks`)
+  alongside the top-level key, allowing fine-grained patterns to target deep attributes
+- New Critical patterns for GCP nested SQL network rules
+- New High patterns for AWS IMDSv2 (`metadata_options.http_tokens`), CloudFront TLS version,
+  and GCP SQL SSL mode and Compute service-account scopes
+
+### Fixed
+- `aws_kms_key` pattern corrected from `key_policy` to `policy` (Terraform attribute name)
+- Azure `azurerm_storage_account` patterns updated for AzureRM 3.x attribute renames:
+  `allow_nested_items_to_be_public` (was `allow_blob_public_access`) and
+  `https_traffic_only_enabled` (was `enable_https_traffic_only`) — both old and new names
+  are now recognised so existing deployments continue to work
+
+### Changed
+- `aws_db_instance.*.backup_retention_period` and `aws_rds_cluster.*.backup_retention_period`
+  reclassified from Critical to High — backup loss is a persistence/availability risk, not a
+  security-perimeter breach
+
 ## [0.5.4] - 2026-10-08
 
 ### Added
